@@ -1,0 +1,4 @@
+# Optional: lets SkillMatch read scanned PDFs and photos of resumes (PNG/JPG).
+# You must ALSO install the Tesseract program itself (see README).
+pytesseract>=0.3.10
+pillow>=10.0
