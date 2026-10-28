@@ -51,13 +51,25 @@ def apply_to_job(candidate, job, resume, auto_apply_related=False):
     return created
 
 
+def set_application_status(application, new_status):
+    """Change an application's status. Only one candidate can be selected per job."""
+    with transaction.atomic():
+        if new_status == Application.SELECTED:
+            application.job.applications.filter(status=Application.SELECTED).exclude(
+                pk=application.pk
+            ).update(status=Application.APPLIED)
+        application.status = new_status
+        application.save(update_fields=["status"])
+    return application
+
+
 def select_best_candidate(job):
-    """Mark the highest-scoring application as selected, others stay as applied."""
-    apps = job.applications.exclude(status=Application.REJECTED).order_by(
-        "-match_percentage"
+    """Select the highest-scoring non-rejected application (previous pick is reset)."""
+    best = (
+        job.applications.exclude(status=Application.REJECTED)
+        .order_by("-match_percentage", "created_at")
+        .first()
     )
-    best = apps.first()
     if best:
-        best.status = Application.SELECTED
-        best.save(update_fields=["status"])
+        set_application_status(best, Application.SELECTED)
     return best

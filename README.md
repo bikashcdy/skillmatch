@@ -1,10 +1,10 @@
-# SkillMatch AI
+# SkillMatch
 
-AI-assisted hiring platform. Recruiters post jobs, candidates apply with a resume, and the
+Resume-matching hiring platform. Recruiters post jobs, candidates apply with a resume, and the
 system scans the resume, scores it against the job's requirements, ranks applicants, and
 auto-applies candidates to related jobs.
 
-**Stack:** Django 6 + Django REST Framework + JWT (backend), React 18 + Vite (frontend), SQLite (dev DB).
+**Stack:** Django 5 + Django REST Framework + JWT (backend), React 18 + Vite (frontend), SQLite (dev DB).
 
 ## Run it
 
@@ -76,7 +76,15 @@ matched vs missing skills. "Select highest match" marks the top application as `
 `POST /api/auth/register|login/` · `GET /api/jobs/` · `POST /api/jobs/<id>/apply/` ·
 `GET /api/my-applications/` · `GET|POST /api/recruiter/jobs/` ·
 `GET /api/recruiter/jobs/<id>/candidates/` · `POST /api/recruiter/jobs/<id>/select-best/` ·
-`GET /api/admin/stats|users/`
+`GET /api/admin/stats|users/` · `GET /api/jobs/?q=&location=&skill=` · `GET /api/jobs/meta/` ·
+`POST /api/recruiter/applications/<id>/status/` · `POST /api/resume/` · `GET /api/recommendations/`
+
+## Career plan (recommendations)
+Candidates open **Career plan** to upload/scan a resume and see: skills found, the skills to learn in
+order of impact (average match boost across open jobs, jobs it unlocks, weeks to get started), free
+learning links, the jobs closest to them (before -> after the plan) and tips on experience/education.
+Logic is in `backend/core/recommendations.py` (edit `RESOURCES` to add skills or links).
+Locations: jobs use Nepal city names (`NEPAL_CITIES` in the same file) with city quick-filters.
 
 ## Scanned resumes and photos (OCR)
 

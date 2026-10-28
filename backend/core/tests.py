@@ -172,3 +172,86 @@ class UnreadableResumeTest(APITestCase):
         app = r.data[0]
         print("\nimage resume ->", app["match_percentage"], app["matched_skills"], app["missing_skills"])
         self.assertGreaterEqual(app["match_percentage"], 90)
+
+
+@override_settings(MEDIA_ROOT=TEST_MEDIA)
+class SearchAndStatusTest(APITestCase):
+    def login(self, username):
+        r = self.client.post("/api/auth/login/", {"username": username, "password": "pass12345"})
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {r.data['access']}")
+
+    def setUp(self):
+        User.objects.create_user("rec", email="r@x.com", password="pass12345",
+                                 role=User.RECRUITER, company_name="Acme")
+        for n in ("c1", "c2"):
+            User.objects.create_user(n, email=f"{n}@x.com", password="pass12345", role=User.CANDIDATE)
+        self.login("rec")
+        base = {"description": "d", "min_experience_years": 0, "required_education": "none"}
+        self.j1 = self.client.post("/api/recruiter/jobs/", {**base, "title": "Django Dev",
+            "location": "Kathmandu", "required_skills": ["Python", "Django"]}, format="json").data["id"]
+        self.client.post("/api/recruiter/jobs/", {**base, "title": "Designer",
+            "location": "Remote", "required_skills": ["CSS", "HTML"]}, format="json")
+
+    def test_filters_and_meta(self):
+        self.login("c1")
+        get = lambda **p: [j["title"] for j in self.client.get("/api/jobs/", p).data]
+        self.assertEqual(len(get()), 2)
+        self.assertEqual(get(location="kath"), ["Django Dev"])
+        self.assertEqual(get(skill="python"), ["Django Dev"])
+        self.assertEqual(get(q="css"), ["Designer"])
+        meta = self.client.get("/api/jobs/meta/").data
+        self.assertEqual(meta["stats"]["jobs"], 2)
+        self.assertIn("Remote", meta["locations"])
+
+    def test_duplicate_apply_missing_job_and_single_selected(self):
+        for n in ("c1", "c2"):
+            self.login(n)
+            r = self.client.post(f"/api/jobs/{self.j1}/apply/",
+                                 {"resume": make_docx("I know Python and Django. " * 3)}, format="multipart")
+            self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(self.client.post(f"/api/jobs/{self.j1}/apply/").status_code, 400)
+        self.assertEqual(self.client.post("/api/jobs/9999/apply/").status_code, 404)
+        self.login("rec")
+        apps = self.client.get(f"/api/recruiter/jobs/{self.j1}/candidates/").data
+        for a in apps:
+            self.assertEqual(self.client.post(f"/api/recruiter/applications/{a['id']}/status/",
+                                              {"status": "selected"}, format="json").status_code, 200)
+        self.assertEqual(Application.objects.filter(status="selected").count(), 1)
+        self.assertEqual(self.client.get("/api/recruiter/jobs/9999/candidates/").status_code, 404)
+        admin = User.objects.create_user("adm", password="pass12345", role=User.ADMIN)
+        self.login("adm")
+        self.assertEqual(self.client.post(f"/api/admin/users/{admin.id}/toggle/").status_code, 400)
+
+
+@override_settings(MEDIA_ROOT=TEST_MEDIA)
+class RecommendationTest(APITestCase):
+    def setUp(self):
+        rec = User.objects.create_user("rec", email="r@x.com", password="pass12345",
+                                       role=User.RECRUITER, company_name="Acme")
+        User.objects.create_user("cand", email="c@x.com", password="pass12345", role=User.CANDIDATE)
+        from .models import Job
+        for t, sk, city in [("Backend", ["python", "django", "docker"], "Pokhara"),
+                            ("Fullstack", ["python", "django", "react", "docker"], "Kathmandu")]:
+            Job.objects.create(recruiter=rec, title=t, company="Acme", description="d", location=city,
+                               required_skills=sk, min_experience_years=2, required_education="bachelor")
+        r = self.client.post("/api/auth/login/", {"username": "cand", "password": "pass12345"})
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {r.data['access']}")
+
+    def test_no_resume_then_recommendations(self):
+        self.assertFalse(self.client.get("/api/recommendations/").data["has_resume"])
+        bad = self.client.post("/api/resume/", {"resume": SimpleUploadedFile("a.exe", b"x")}, format="multipart")
+        self.assertEqual(bad.status_code, 400)
+        ok = self.client.post("/api/resume/", {"resume": make_docx("I know Python and Django. BCA student. " * 2)},
+                              format="multipart")
+        self.assertEqual(ok.status_code, 201, ok.content)
+        d = self.client.get("/api/recommendations/").data
+        self.assertTrue(d["has_resume"])
+        self.assertEqual(d["skill_gaps"][0]["skill"], "docker")      # needed by both jobs
+        self.assertEqual(d["skill_gaps"][0]["jobs_needing"], 2)
+        self.assertGreater(d["skill_gaps"][0]["avg_gain"], 0)
+        self.assertTrue(d["skill_gaps"][0]["resources"][0]["url"].startswith("https://"))
+        self.assertGreaterEqual(d["avg_after"], d["avg_now"])
+        self.assertTrue(any(t["area"] == "Experience" for t in d["tips"]))
+        cities = [c["name"] for c in self.client.get("/api/jobs/meta/").data["cities"]]
+        self.assertIn("Pokhara", cities)
+        self.assertIn("Butwal", cities)

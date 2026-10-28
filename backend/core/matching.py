@@ -1,4 +1,4 @@
-"""Resume parsing, skill extraction and job matching for SkillMatch AI."""
+"""Resume parsing, skill extraction and job matching for SkillMatch."""
 
 import os
 import re

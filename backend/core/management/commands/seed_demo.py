@@ -23,9 +23,10 @@ class Command(BaseCommand):
             ("QA Engineer", ["testing", "python", "git", "sql"], 1, "diploma"),
             ("Data Analyst", ["data analysis", "sql", "python"], 1, "bachelor"),
         ]
-        for title, skills, exp, edu in jobs:
-            Job.objects.get_or_create(recruiter=rec, title=title, defaults=dict(
-                company="TechNepal", description=f"We are hiring a {title}.", location="Kathmandu",
+        cities = ["Kathmandu", "Pokhara", "Lalitpur", "Butwal", "Biratnagar"]
+        for (title, skills, exp, edu), city in zip(jobs, cities):
+            Job.objects.update_or_create(recruiter=rec, title=title, defaults=dict(
+                company="TechNepal", description=f"We are hiring a {title}.", location=city,
                 required_skills=skills, min_experience_years=exp, required_education=edu))
         self.stdout.write(self.style.SUCCESS(
             "Demo ready. Logins: admin/admin12345, recruiter/demo12345, candidate/demo12345"))
