@@ -1,4 +1,4 @@
-# SkillMatch
+# JobMitra
 
 Resume-matching hiring platform. Recruiters post jobs, candidates apply with a resume, and the
 system scans the resume, scores it against the job's requirements, ranks applicants, and
@@ -78,6 +78,21 @@ matched vs missing skills. "Select highest match" marks the top application as `
 `GET /api/recruiter/jobs/<id>/candidates/` · `POST /api/recruiter/jobs/<id>/select-best/` ·
 `GET /api/admin/stats|users/` · `GET /api/jobs/?q=&location=&skill=` · `GET /api/jobs/meta/` ·
 `POST /api/recruiter/applications/<id>/status/` · `POST /api/resume/` · `GET /api/recommendations/`
+
+## Update v2: what is new
+- **Email notifications** (`core/notifications.py`): candidate when selected/rejected or messaged by a recruiter;
+  recruiter when someone matches 80%+; candidate alert for new jobs matching 70%+ (can be turned off on the Jobs page).
+  With no setup, emails are **printed in the backend terminal**. For real emails paste
+  `docs/EMAIL_AND_DEPLOY_SNIPPET.py` at the bottom of `backend/config/settings.py` and fill in `EMAIL_HOST_USER`
+  and `EMAIL_HOST_PASSWORD` (Gmail app password).
+- **Better scanner**: ~50 skills incl. Laravel, WordPress, Figma, digital marketing, accounting; implied skills;
+  typo/plural matching for recruiter input; old resumes are re-scanned automatically.
+- **Resume check**: score out of 100 with a fix list on the Career plan page.
+- **Saved jobs**, **job type** (full-time/part-time/internship/contract), **salary range** and filters.
+- **Recruiter messages** to candidates (shown in My applications and emailed).
+- **Nepali language** switch (नेपाली button in the top bar) and a **How matching works** page.
+- `docs/DEPLOYMENT.md` (going online) and `docs/MATCHING.md` (explanation for your report).
+- **Database change:** run `py manage.py migrate` once after copying the files.
 
 ## Career plan (recommendations)
 Candidates open **Career plan** to upload/scan a resume and see: skills found, the skills to learn in

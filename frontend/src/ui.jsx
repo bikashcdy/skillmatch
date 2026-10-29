@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { useT } from "./i18n.jsx";
 
 /* ---------- toasts ---------- */
 const ToastCtx = createContext(() => {});
@@ -68,7 +69,7 @@ export const Bar = ({ label, value }) => (
 );
 
 /* ---------- tag input ---------- */
-export function TagInput({ value, onChange, placeholder }) {
+export function TagInput({ value, onChange, placeholder, suggestions = [] }) {
   const [text, setText] = useState("");
   const add = (raw) => {
     const parts = raw.split(",").map((s) => s.trim()).filter(Boolean);
@@ -82,13 +83,14 @@ export function TagInput({ value, onChange, placeholder }) {
           <button type="button" onClick={() => onChange(value.filter((x) => x !== t))} aria-label={`Remove ${t}`}>×</button>
         </span>
       ))}
-      <input value={text} placeholder={value.length ? "" : placeholder}
+      <input list="skill-suggestions" value={text} placeholder={value.length ? "" : placeholder}
         onChange={(e) => (e.target.value.endsWith(",") ? add(e.target.value) : setText(e.target.value))}
         onKeyDown={(e) => {
           if (e.key === "Enter") { e.preventDefault(); add(text); }
           if (e.key === "Backspace" && !text && value.length) onChange(value.slice(0, -1));
         }}
         onBlur={() => text && add(text)} />
+      <datalist id="skill-suggestions">{suggestions.map((s) => <option key={s} value={s} />)}</datalist>
     </div>
   );
 }
@@ -102,8 +104,16 @@ export const Skeleton = ({ n = 3 }) => (
 );
 
 export const StatusBadge = ({ status }) => {
-  const map = { applied: "Applied", auto: "Auto-applied", selected: "Selected", rejected: "Rejected" };
+  const { t } = useT();
+  const map = { applied: t("statusApplied"), auto: t("statusAuto"), selected: t("statusSelected"), rejected: t("statusRejected") };
   return <span className={`badge ${status}`}>{map[status] || status}</span>;
+};
+
+export const salaryText = (j, t) => {
+  const f = (n) => Number(n).toLocaleString("en-IN");
+  if (!j.salary_min && !j.salary_max) return t("negotiable");
+  if (j.salary_min && j.salary_max) return `NPR ${f(j.salary_min)} – ${f(j.salary_max)} ${t("perMonth")}`;
+  return `NPR ${f(j.salary_min || j.salary_max)}+ ${t("perMonth")}`;
 };
 
 export const timeAgo = (iso) => {

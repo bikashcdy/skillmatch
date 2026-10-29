@@ -9,17 +9,20 @@ from .matching import (
     ALLOWED_EXTENSIONS,
     UnreadableResume,
     normalize_skill,
+    SKILLS,
     parse_resume,
+    refresh_skills,
     score_match,
 )
-from .models import Application, Job, Resume, User
+from .models import Application, Job, Resume, SavedJob, User
 from .serializers import (
     ApplicationSerializer,
     JobSerializer,
     RegisterSerializer,
     ResumeSerializer,
 )
-from .recommendations import NEPAL_CITIES, build_recommendations
+from . import notifications
+from .recommendations import NEPAL_CITIES, build_recommendations, resume_health
 from .services import apply_to_job, select_best_candidate, set_application_status
 
 
@@ -47,10 +50,13 @@ class RegisterView(generics.CreateAPIView):
     permission_classes = [permissions.AllowAny]
 
 
-@api_view(["GET"])
+@api_view(["GET", "PATCH"])
 @permission_classes([permissions.IsAuthenticated])
 def me(request):
     u = request.user
+    if request.method == "PATCH" and "email_alerts" in request.data:
+        u.email_alerts = str(request.data["email_alerts"]).lower() in ("1", "true", "yes")
+        u.save(update_fields=["email_alerts"])
     return Response(
         {
             "id": u.id,
@@ -58,6 +64,7 @@ def me(request):
             "email": u.email,
             "role": u.role,
             "company_name": u.company_name,
+            "email_alerts": u.email_alerts,
         }
     )
 
@@ -93,6 +100,18 @@ class JobListView(generics.ListAPIView):
         if skill:
             canon = normalize_skill(skill)
             jobs = [j for j in jobs if canon in j.required_skills]
+        jt = (p.get("job_type") or "").strip()
+        if jt:
+            jobs = [j for j in jobs if j.job_type == jt]
+        try:
+            min_salary = int(p.get("min_salary") or 0)
+        except ValueError:
+            min_salary = 0
+        if min_salary:  # keep jobs that can pay at least this much; hide jobs with no salary shown
+            jobs = [j for j in jobs if (j.salary_max or j.salary_min or 0) >= min_salary]
+        if p.get("saved") in ("1", "true"):
+            ids = set(SavedJob.objects.filter(user=self.request.user).values_list("job_id", flat=True))
+            jobs = [j for j in jobs if j.id in ids]
         return jobs
 
     def get_serializer_context(self):
@@ -100,8 +119,10 @@ class JobListView(generics.ListAPIView):
         u = self.request.user
         if u.role == User.CANDIDATE:
             ctx["my_apps"] = {a.job_id: a for a in Application.objects.filter(candidate=u)}
+            ctx["saved_ids"] = set(SavedJob.objects.filter(user=u).values_list("job_id", flat=True))
             resume = u.resumes.order_by("-uploaded_at").first()
             if resume:
+                refresh_skills(resume)
                 ctx["match_map"] = {
                     j.id: score_match(resume, j)["match_percentage"]
                     for j in Job.objects.filter(is_open=True)
@@ -127,6 +148,7 @@ def job_meta(request):
             "skills": [{"name": n, "count": c} for n, c in ranked],
             "locations": sorted(locations),
             "cities": [{"name": c, "count": locations.get(c, 0)} for c in NEPAL_CITIES],
+            "catalog": sorted(SKILLS),
             "stats": {
                 "jobs": len(jobs),
                 "companies": len({j.company for j in jobs}),
@@ -145,7 +167,8 @@ class RecruiterJobView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         u = self.request.user
-        serializer.save(recruiter=u, company=u.company_name or u.username)
+        job = serializer.save(recruiter=u, company=u.company_name or u.username)
+        notifications.new_job_alerts(job)
 
 
 class RecruiterJobDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -178,6 +201,22 @@ def auto_select(request, job_id):
     if not best:
         return Response({"detail": "No applicants yet."}, status=status.HTTP_404_NOT_FOUND)
     return Response(ApplicationSerializer(best, context={"request": request}).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsRecruiter])
+def set_note(request, app_id):
+    """Recruiter writes a short message to the candidate: body {"note": "..."}."""
+    from django.utils import timezone
+
+    app = get_object_or_404(Application, pk=app_id, job__recruiter=request.user)
+    note = (request.data.get("note") or "").strip()[:500]
+    app.recruiter_note = note
+    app.note_updated_at = timezone.now() if note else None
+    app.save(update_fields=["recruiter_note", "note_updated_at"])
+    if note:
+        notifications.recruiter_message(app)
+    return Response(ApplicationSerializer(app, context={"request": request}).data)
 
 
 @api_view(["POST"])
@@ -307,7 +346,9 @@ def upload_resume(request):
         resume.file.delete(save=False)
         resume.delete()
         return Response({"detail": str(e)}, status=400)
-    return Response(ResumeSerializer(resume, context={"request": request}).data, status=201)
+    data = ResumeSerializer(resume, context={"request": request}).data
+    data["health"] = resume_health(resume.raw_text)
+    return Response(data, status=201)
 
 
 @api_view(["GET"])
@@ -316,6 +357,7 @@ def recommendations(request):
     resume = request.user.resumes.order_by("-uploaded_at").first()
     if not resume:
         return Response({"has_resume": False})
+    refresh_skills(resume)
     jobs = list(Job.objects.filter(is_open=True))
     data = build_recommendations(resume, jobs)
     data.update(
@@ -324,3 +366,15 @@ def recommendations(request):
         jobs_count=len(jobs),
     )
     return Response(data)
+
+
+# ---------- Saved jobs ----------
+@api_view(["POST", "DELETE"])
+@permission_classes([IsCandidate])
+def save_job(request, job_id):
+    job = get_object_or_404(Job, pk=job_id)
+    if request.method == "POST":
+        SavedJob.objects.get_or_create(user=request.user, job=job)
+    else:
+        SavedJob.objects.filter(user=request.user, job=job).delete()
+    return Response({"id": job.id, "saved": request.method == "POST"})

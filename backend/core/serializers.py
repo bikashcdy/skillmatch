@@ -44,6 +44,7 @@ class JobSerializer(serializers.ModelSerializer):
     applicants = serializers.IntegerField(source="applications.count", read_only=True)
     my_application = serializers.SerializerMethodField()
     resume_match = serializers.SerializerMethodField()
+    saved = serializers.SerializerMethodField()
 
     class Meta:
         model = Job
@@ -56,11 +57,15 @@ class JobSerializer(serializers.ModelSerializer):
             "required_skills",
             "min_experience_years",
             "required_education",
+            "job_type",
+            "salary_min",
+            "salary_max",
             "is_open",
             "created_at",
             "applicants",
             "my_application",
             "resume_match",
+            "saved",
         ]
         read_only_fields = ["company", "created_at"]
 
@@ -74,6 +79,15 @@ class JobSerializer(serializers.ModelSerializer):
         if value < 0:
             raise serializers.ValidationError("Experience cannot be negative.")
         return value
+
+    def validate(self, attrs):
+        lo, hi = attrs.get("salary_min"), attrs.get("salary_max")
+        if lo is not None and hi is not None and hi < lo:
+            raise serializers.ValidationError({"salary_max": "Maximum salary must be at least the minimum."})
+        return attrs
+
+    def get_saved(self, job):
+        return job.id in (self.context.get("saved_ids") or ())
 
     def get_my_application(self, job):
         apps = self.context.get("my_apps")
@@ -148,6 +162,8 @@ class ApplicationSerializer(serializers.ModelSerializer):
             "matched_skills",
             "missing_skills",
             "status",
+            "recruiter_note",
+            "note_updated_at",
             "created_at",
         ]
 

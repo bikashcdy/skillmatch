@@ -1,47 +1,73 @@
-"""Resume parsing, skill extraction and job matching for SkillMatch."""
+"""Resume parsing, skill extraction and job matching for JobMitra."""
 
 import os
 import re
 
 # canonical skill -> aliases. Extend this dictionary (or load it from the DB) as you grow.
 SKILLS = {
+    # --- programming & web ---
     "python": ["python", "py"],
     "django": ["django", "drf", "django rest framework"],
     "flask": ["flask"],
     "javascript": ["javascript", "js", "es6"],
     "typescript": ["typescript", "ts"],
     "react": ["react", "reactjs", "react.js"],
-    "node.js": ["node", "nodejs", "node.js"],
+    "react native": ["react native"],
+    "next.js": ["next.js", "nextjs"],
+    "vue": ["vue", "vuejs", "vue.js"],
+    "angular": ["angular", "angularjs"],
+    "node.js": ["node", "nodejs", "node.js", "express.js", "expressjs"],
     "html": ["html", "html5"],
-    "css": ["css", "css3", "tailwind", "bootstrap"],
-    "sql": ["sql", "mysql", "postgresql", "postgres", "sqlite"],
-    "mongodb": ["mongodb", "mongo"],
-    "php": ["php", "laravel"],
+    "css": ["css", "css3", "tailwind", "bootstrap", "sass"],
+    "php": ["php"],
+    "laravel": ["laravel"],
+    "wordpress": ["wordpress", "woocommerce"],
     "java": ["java"],
+    "spring boot": ["spring boot", "springboot"],
+    "c#": ["c#", "asp.net", ".net", "dotnet"],
     "c++": ["c++", "cpp"],
     "flutter": ["flutter", "dart"],
+    "android": ["android", "kotlin"],
+    "ios": ["ios", "swiftui", "ios development"],
+    "rest api": ["rest", "rest api", "restful", "api development"],
+    # --- data & cloud ---
+    "sql": ["sql", "mysql", "postgresql", "postgres", "sqlite"],
+    "mongodb": ["mongodb", "mongo"],
+    "firebase": ["firebase", "firestore"],
     "git": ["git", "github", "gitlab"],
     "docker": ["docker", "containers"],
+    "devops": ["devops", "ci/cd", "jenkins", "kubernetes", "github actions"],
     "aws": ["aws", "amazon web services"],
-    "rest api": ["rest", "rest api", "restful", "api development"],
-    "machine learning": ["machine learning", "ml", "scikit-learn", "sklearn"],
-    "data analysis": [
-        "data analysis",
-        "pandas",
-        "numpy",
-        "excel",
-        "power bi",
-        "tableau",
-    ],
-    "testing": [
-        "testing",
-        "qa",
-        "quality assurance",
-        "selenium",
-        "pytest",
-        "unit testing",
-    ],
+    "linux": ["linux", "ubuntu", "bash", "shell scripting"],
+    "networking": ["networking", "ccna", "cisco", "tcp/ip", "mikrotik"],
+    "cybersecurity": ["cybersecurity", "cyber security", "ethical hacking", "penetration testing"],
+    "machine learning": ["machine learning", "ml", "scikit-learn", "sklearn", "deep learning", "tensorflow", "pytorch", "nlp"],
+    "data analysis": ["data analysis", "pandas", "numpy", "excel", "ms excel", "power bi", "tableau"],
+    "testing": ["testing", "qa", "quality assurance", "selenium", "pytest", "unit testing"],
+    # --- design & media ---
+    "ui/ux design": ["ui/ux", "ux design", "ui design", "wireframing", "prototyping"],
+    "figma": ["figma", "adobe xd"],
+    "graphic design": ["graphic design", "photoshop", "illustrator", "canva", "coreldraw"],
+    "video editing": ["video editing", "premiere pro", "after effects", "capcut"],
+    # --- business & office (common in Nepal) ---
+    "digital marketing": ["digital marketing", "seo", "social media marketing", "google ads", "facebook ads", "content marketing", "email marketing"],
+    "content writing": ["content writing", "copywriting", "blogging"],
+    "accounting": ["accounting", "tally", "bookkeeping", "quickbooks", "taxation", "vat"],
+    "sales": ["sales", "business development", "lead generation"],
+    "customer service": ["customer service", "customer support", "call center"],
+    "project management": ["project management", "scrum", "agile", "jira", "kanban"],
+    "ms office": ["ms office", "microsoft office", "ms word", "powerpoint"],
+    "human resources": ["human resources", "recruitment", "payroll"],
     "communication": ["communication", "teamwork", "leadership"],
+}
+
+# Knowing the left skill implies the right one (a Django developer knows Python).
+IMPLIES = {
+    "django": ["python"], "flask": ["python"], "react": ["javascript"], "next.js": ["react", "javascript"],
+    "vue": ["javascript"], "angular": ["javascript", "typescript"], "node.js": ["javascript"],
+    "typescript": ["javascript"], "react native": ["react", "javascript"], "laravel": ["php"],
+    "wordpress": ["php"], "spring boot": ["java"], "figma": ["ui/ux design"],
+    "devops": ["linux"], "machine learning": ["python"],
 }
 
 EDUCATION_LEVELS = {"none": 0, "diploma": 1, "bachelor": 2, "master": 3, "phd": 4}
@@ -149,19 +175,47 @@ def _has_term(text, term):
 
 def extract_skills(text):
     text = text.lower()
-    return sorted(
+    found = {
         skill
         for skill, aliases in SKILLS.items()
         if any(_has_term(text, a) for a in aliases)
-    )
+    }
+    for skill in list(found):  # add implied skills (Django -> Python)
+        found.update(IMPLIES.get(skill, []))
+    return sorted(found)
+
+
+def refresh_skills(resume):
+    """Re-scan the stored text so old resumes benefit from newer skill lists."""
+    if not resume.raw_text:
+        return resume
+    skills = extract_skills(resume.raw_text)
+    if skills != resume.extracted_skills:
+        resume.extracted_skills = skills
+        resume.save(update_fields=["extracted_skills"])
+    return resume
+
+
+_ALIAS_INDEX = {}
+for _skill, _aliases in SKILLS.items():
+    _ALIAS_INDEX[_skill] = _skill
+    for _a in _aliases:
+        _ALIAS_INDEX.setdefault(_a, _skill)
 
 
 def normalize_skill(name):
-    """Map a recruiter-typed skill ('ReactJS') to its canonical name."""
-    n = name.strip().lower()
-    for skill, aliases in SKILLS.items():
-        if n == skill or n in aliases:
-            return skill
+    """Map a recruiter-typed skill ('ReactJS', 'Javascripts') to its canonical name."""
+    import difflib
+
+    n = " ".join(name.strip().lower().split())
+    if n in _ALIAS_INDEX:
+        return _ALIAS_INDEX[n]
+    if n.endswith("s") and n[:-1] in _ALIAS_INDEX:  # plural: "javascripts"
+        return _ALIAS_INDEX[n[:-1]]
+    if len(n) >= 5:  # small typos: "javascipt", "wordpres"
+        close = difflib.get_close_matches(n, [a for a in _ALIAS_INDEX if len(a) >= 5], n=1, cutoff=0.86)
+        if close:
+            return _ALIAS_INDEX[close[0]]
     return n
 
 

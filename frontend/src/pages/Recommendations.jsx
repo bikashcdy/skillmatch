@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import api, { errorText } from "../api";
 import { Empty, MatchRing, Skeleton, skillLabel, useToast } from "../ui.jsx";
+import { useT } from "../i18n.jsx";
 
 export default function Recommendations() {
+  const { t } = useT();
   const toast = useToast();
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -18,7 +20,7 @@ export default function Recommendations() {
     const fd = new FormData();
     fd.append("resume", file);
     setBusy(true);
-    try { await api.post("/resume/", fd); toast("Resume scanned"); await load(); }
+    try { const { data: d } = await api.post("/resume/", fd); toast(`Resume scanned · resume score ${d.health.score}/100`); await load(); }
     catch (e) { toast(errorText(e, "Could not scan this resume."), "err"); }
     setBusy(false);
     if (fileRef.current) fileRef.current.value = "";
@@ -35,9 +37,9 @@ export default function Recommendations() {
   if (!data) return <Skeleton n={4} />;
   if (!data.has_resume) {
     return (
-      <Empty icon="📄" title="Scan your resume to get your personal plan">
+      <Empty icon="📄" title={t("scanFirst")}>
         Upload your resume (PDF, DOCX, TXT or a photo). We will show which skills to learn, where to learn them, and how much each one raises your match.
-        <div style={{ marginTop: 16 }}><Upload label="Upload & scan resume" /></div>
+        <div style={{ marginTop: 16 }}><Upload label={t("uploadScan")} /></div>
       </Empty>
     );
   }
@@ -46,8 +48,8 @@ export default function Recommendations() {
   return (
     <div className="stack">
       <div className="row between">
-        <div><h1>Your career plan</h1><p className="muted">Based on your latest resume and {data.jobs_count} open jobs</p></div>
-        <Upload label="Upload a newer resume" />
+        <div><h1>{t("planTitle")}</h1><p className="muted">{t("planSub", { n: data.jobs_count })}</p></div>
+        <Upload label={t("uploadNewer")} />
       </div>
 
       <section className="card plan-hero">
@@ -60,16 +62,33 @@ export default function Recommendations() {
         {data.focus.length > 0 && (
           <div className="boost">
             <div className="boost-nums">
-              <div><b>{data.avg_now}%</b><small>average match now</small></div>
+              <div><b>{data.avg_now}%</b><small>{t("avgNow")}</small></div>
               <span>→</span>
-              <div className="after"><b>{data.avg_after}%</b><small>after learning {data.focus.length} skills</small></div>
+              <div className="after"><b>{data.avg_after}%</b><small>{t("avgAfter", { n: data.focus.length })}</small></div>
             </div>
             <p className="muted">Focus on <b>{data.focus.map(skillLabel).join(", ")}</b> first. About {data.weeks_total} weeks of steady study.</p>
           </div>
         )}
       </section>
 
-      <h2>Skills to learn, in order of impact</h2>
+      {data.health && (
+        <section className="card health">
+          <div className="health-head">
+            <MatchRing value={data.health.score} size={84} />
+            <div><h2>{t("resumeCheck")}</h2><p className="muted">{t("resumeScore")}: <b>{data.health.score}/100</b> · {t("fixThese")}</p></div>
+          </div>
+          <ul className="checklist">
+            {data.health.checks.map((c) => (
+              <li key={c.key} className={c.ok ? "ok" : "bad"}>
+                <span>{c.ok ? "✓" : "✗"}</span>
+                <div><b>{c.label}</b>{!c.ok && <p>{c.tip}</p>}</div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <h2>{t("skillsToLearn")}</h2>
       {data.skill_gaps.length === 0 ? (
         <Empty icon="🎉" title="No skill gaps found">Your resume already covers every skill the open jobs ask for.</Empty>
       ) : data.skill_gaps.map((g) => (
@@ -81,7 +100,7 @@ export default function Recommendations() {
                 <h3>{skillLabel(g.skill)}</h3>
                 <p className="muted">{g.why}</p>
               </div>
-              <div className="gain">+{g.avg_gain}%<small>avg match boost</small></div>
+              <div className="gain">+{g.avg_gain}%<small>{t("boost")}</small></div>
             </div>
             <p style={{ margin: "8px 0" }}>
               Needed by <b>{g.jobs_needing}</b> job{g.jobs_needing > 1 ? "s" : ""} ({g.job_titles.join(", ")}) · about <b>{g.weeks} weeks</b> to get started
@@ -96,7 +115,7 @@ export default function Recommendations() {
         </article>
       ))}
 
-      <h2>Jobs closest to you</h2>
+      <h2>{t("closest")}</h2>
       <div className="jobs">
         {data.best_jobs.map((j) => (
           <div className="card row between" key={j.id}>
@@ -109,10 +128,10 @@ export default function Recommendations() {
               </div>
             </div>
             <div className="row" style={{ flexWrap: "nowrap" }}>
-              <div style={{ textAlign: "center" }}><MatchRing value={j.match} /><small>now</small></div>
+              <div style={{ textAlign: "center" }}><MatchRing value={j.match} /><small>{t("now")}</small></div>
               {j.match_after > j.match && <>
                 <span className="muted">→</span>
-                <div style={{ textAlign: "center" }}><MatchRing value={j.match_after} /><small>after plan</small></div>
+                <div style={{ textAlign: "center" }}><MatchRing value={j.match_after} /><small>{t("afterPlan")}</small></div>
               </>}
             </div>
           </div>
@@ -120,7 +139,7 @@ export default function Recommendations() {
       </div>
 
       {data.tips.length > 0 && (<>
-        <h2>Other things to improve</h2>
+        <h2>{t("other")}</h2>
         <div className="grid2">
           {data.tips.map((t) => (
             <div className="card" key={t.area}><span className="badge auto">{t.area}</span><p style={{ marginTop: 8 }}>{t.text}</p></div>
@@ -128,7 +147,7 @@ export default function Recommendations() {
         </div>
       </>)}
 
-      <h2>How to actually learn</h2>
+      <h2>{t("howLearn")}</h2>
       <div className="card"><ul className="ideas">{data.ideas.map((i) => <li key={i}>{i}</li>)}</ul></div>
       <p className="muted" style={{ textAlign: "center" }}>
         Ready? <Link to="/jobs" style={{ color: "var(--accent)", fontWeight: 600 }}>Browse jobs</Link> and apply.

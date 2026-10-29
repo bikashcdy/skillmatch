@@ -255,3 +255,101 @@ class RecommendationTest(APITestCase):
         cities = [c["name"] for c in self.client.get("/api/jobs/meta/").data["cities"]]
         self.assertIn("Pokhara", cities)
         self.assertIn("Butwal", cities)
+
+
+@override_settings(MEDIA_ROOT=TEST_MEDIA)
+class V2FeaturesTest(APITestCase):
+    def login(self, username):
+        r = self.client.post("/api/auth/login/", {"username": username, "password": "pass12345"})
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {r.data['access']}")
+
+    def setUp(self):
+        User.objects.create_user("rec", email="rec@x.com", password="pass12345",
+                                 role=User.RECRUITER, company_name="Acme")
+        User.objects.create_user("cand", email="cand@x.com", password="pass12345", role=User.CANDIDATE)
+        self.cv = lambda: make_docx("Python Django developer. Skills: python django git sql. BCA 2021-2025. " * 2)
+
+    def post_job(self, **kw):
+        base = {"title": "Backend", "description": "d", "location": "Pokhara", "min_experience_years": 0,
+                "required_education": "none", "required_skills": ["Python", "Django"]}
+        r = self.client.post("/api/recruiter/jobs/", {**base, **kw}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        return r.data["id"]
+
+    def test_emails_strong_match_decision_note_and_alert(self):
+        from django.core import mail
+        self.login("cand")
+        # candidate scans a resume first, so a later job can alert them
+        self.client.post("/api/resume/", {"resume": self.cv()}, format="multipart")
+        self.login("rec")
+        mail.outbox.clear()
+        job = self.post_job()
+        self.assertEqual([m.to for m in mail.outbox], [["cand@x.com"]])           # new-job alert
+        self.assertIn("match", mail.outbox[0].subject)
+
+        self.login("cand")
+        mail.outbox.clear()
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(self.client.post(f"/api/jobs/{job}/apply/").status_code, 201)
+        self.assertEqual([m.to for m in mail.outbox], [["rec@x.com"]])            # strong match
+
+        self.login("rec")
+        app = self.client.get(f"/api/recruiter/jobs/{job}/candidates/").data[0]["id"]
+        mail.outbox.clear()
+        r = self.client.post(f"/api/recruiter/applications/{app}/note/", {"note": "Interview on Sunday"}, format="json")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        self.client.post(f"/api/recruiter/applications/{app}/status/", {"status": "selected"}, format="json")
+        self.assertIn("selected", mail.outbox[-1].subject.lower())
+        self.assertIn("Interview on Sunday", mail.outbox[-1].body)
+        for m in mail.outbox[-2:]:                      # sent "from" the recruiter's company, replies go to them
+            self.assertTrue(m.from_email.startswith("Acme via JobMitra"))
+            self.assertEqual(m.reply_to, ["rec@x.com"])
+
+        self.login("cand")
+        mine = self.client.get("/api/my-applications/").data[0]
+        self.assertEqual(mine["recruiter_note"], "Interview on Sunday")
+
+    def test_alert_opt_out_and_saved_jobs_and_filters(self):
+        from django.core import mail
+        self.login("cand")
+        self.client.post("/api/resume/", {"resume": self.cv()}, format="multipart")
+        self.assertFalse(self.client.patch("/api/auth/me/", {"email_alerts": False}, format="json").data["email_alerts"])
+        self.login("rec")
+        mail.outbox.clear()
+        intern = self.post_job(title="Intern", job_type="internship", salary_min=10000, salary_max=15000)
+        self.post_job(title="Senior", job_type="full_time", salary_min=80000, salary_max=120000)
+        self.assertEqual(len(mail.outbox), 0)                                      # opted out
+        bad = self.client.post("/api/recruiter/jobs/", {"title": "x", "description": "d", "required_skills": ["python"],
+                               "salary_min": 50, "salary_max": 10}, format="json")
+        self.assertEqual(bad.status_code, 400)
+
+        self.login("cand")
+        titles = lambda **p: sorted(j["title"] for j in self.client.get("/api/jobs/", p).data)
+        self.assertEqual(titles(job_type="internship"), ["Intern"])
+        self.assertEqual(titles(min_salary=50000), ["Senior"])
+        self.assertEqual(self.client.post(f"/api/jobs/{intern}/save/").status_code, 200)
+        self.assertEqual(titles(saved=1), ["Intern"])
+        self.assertTrue(next(j for j in self.client.get("/api/jobs/").data if j["id"] == intern)["saved"])
+        self.client.delete(f"/api/jobs/{intern}/save/")
+        self.assertEqual(titles(saved=1), [])
+
+    def test_scanner_and_health(self):
+        from .matching import extract_skills, normalize_skill
+        from .recommendations import resume_health
+        self.assertEqual(normalize_skill("Javascripts"), "javascript")
+        self.assertEqual(normalize_skill("Laravel"), "laravel")
+        skills = extract_skills("Figma, SEO, Tally and Django")
+        for s in ("figma", "digital marketing", "accounting", "django", "python"):   # python is implied
+            self.assertIn(s, skills)
+        weak = resume_health("I am a student.")
+        good = resume_health("Ram ram@x.com 9841234567 skills python education BCA 2021-2025 projects built github.com/r " + "word " * 160)
+        self.assertLess(weak["score"], 30)
+        self.assertGreater(good["score"], 80)
+        self.assertTrue(any(not c["ok"] and c["tip"] for c in weak["checks"]))
+
+    def test_upload_returns_health_and_recommendations_has_it(self):
+        self.login("cand")
+        r = self.client.post("/api/resume/", {"resume": self.cv()}, format="multipart")
+        self.assertIn("score", r.data["health"])
+        self.assertIn("health", self.client.get("/api/recommendations/").data)

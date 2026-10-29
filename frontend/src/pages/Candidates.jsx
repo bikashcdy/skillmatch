@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import api, { errorText } from "../api";
-import { Bar, Empty, MatchRing, Skeleton, StatusBadge, useToast, skillLabel } from "../ui.jsx";
+import { Bar, Empty, MatchRing, Modal, Skeleton, StatusBadge, skillLabel, useToast } from "../ui.jsx";
+import { useT } from "../i18n.jsx";
 
 export default function Candidates() {
   const { id } = useParams();
+  const { t } = useT();
   const toast = useToast();
+  const [msg, setMsg] = useState(null);
   const [apps, setApps] = useState(null);
   const [open, setOpen] = useState(null);
 
@@ -24,12 +27,20 @@ export default function Candidates() {
     catch (e) { toast(errorText(e), "err"); }
   }
 
+  async function sendNote(e) {
+    e.preventDefault();
+    try {
+      await api.post(`/recruiter/applications/${msg.app.id}/note/`, { note: msg.text });
+      toast(msg.text.trim() ? "Message sent" : "Message removed"); setMsg(null); load();
+    } catch (err) { toast(errorText(err), "err"); }
+  }
+
   return (
     <div className="stack">
-      <Link to="/recruiter" className="muted">← Back to my jobs</Link>
+      <Link to="/recruiter" className="muted">← {t("back")}</Link>
       <div className="row between">
-        <div><h1>Ranked candidates</h1><p className="muted">Highest match first</p></div>
-        <button className="primary" onClick={selectBest} disabled={!apps?.length}>★ Select highest match</button>
+        <div><h1>{t("rankedCands")}</h1><p className="muted">{t("highestFirst")}</p></div>
+        <button className="primary" onClick={selectBest} disabled={!apps?.length}>★ {t("selectBest")}</button>
       </div>
       {apps === null ? <Skeleton /> : apps.length === 0 ? (
         <Empty icon="📭" title="No applicants yet">Candidates who apply (or are auto-matched) will appear here, ranked.</Empty>
@@ -47,6 +58,7 @@ export default function Candidates() {
             {a.matched_skills.map((s) => <span className="chip ok" key={s}>✓ {skillLabel(s)}</span>)}
             {a.missing_skills.map((s) => <span className="chip miss" key={s}>missing: {skillLabel(s)}</span>)}
           </div>
+          {a.recruiter_note && <div className="note"><b>💬 {t("message")}</b><p>{a.recruiter_note}</p></div>}
           {open === a.id && (
             <div className="stack" style={{ marginTop: 12 }}>
               <Bar label="Skills" value={a.skill_score} /><Bar label="Experience" value={a.experience_score} /><Bar label="Education" value={a.education_score} />
@@ -54,14 +66,27 @@ export default function Candidates() {
             </div>
           )}
           <div className="row" style={{ marginTop: 14 }}>
-            <button onClick={() => setOpen(open === a.id ? null : a.id)}>{open === a.id ? "Hide details" : "Details"}</button>
-            {a.resume_url && <a className="btn" href={a.resume_url} target="_blank" rel="noreferrer">📄 Resume</a>}
-            {a.status !== "selected" && <button className="primary" onClick={() => setStatus(a, "selected")}>Select</button>}
-            {a.status !== "rejected" ? <button className="danger" onClick={() => setStatus(a, "rejected")}>Reject</button>
-              : <button onClick={() => setStatus(a, "applied")}>Restore</button>}
+            <button onClick={() => setOpen(open === a.id ? null : a.id)}>{open === a.id ? t("hideDetails") : t("details")}</button>
+            {a.resume_url && <a className="btn" href={a.resume_url} target="_blank" rel="noreferrer">📄 {t("resume")}</a>}
+            <button onClick={() => setMsg({ app: a, text: a.recruiter_note || "" })}>💬 {t("message")}</button>
+            {a.status !== "selected" && <button className="primary" onClick={() => setStatus(a, "selected")}>{t("select")}</button>}
+            {a.status !== "rejected" ? <button className="danger" onClick={() => setStatus(a, "rejected")}>{t("reject")}</button>
+              : <button onClick={() => setStatus(a, "applied")}>{t("restore")}</button>}
           </div>
         </div>
       ))}
+      {msg && (
+        <Modal title={`${t("msgTitle")}: ${msg.app.candidate_name}`} onClose={() => setMsg(null)}>
+          <form className="stack" onSubmit={sendNote}>
+            <p className="muted">{t("msgHint")}</p>
+            <textarea maxLength={500} value={msg.text} onChange={(e) => setMsg({ ...msg, text: e.target.value })} placeholder="Interview on Sunday at 11 AM, Kathmandu office." />
+            <div>{["tplInterview", "tplDocs", "tplThanks"].map((k) => (
+              <button type="button" className="tchip-dark" key={k} onClick={() => setMsg({ ...msg, text: t(k) })}>{t(k).slice(0, 34)}…</button>
+            ))}</div>
+            <button className="primary">{t("sendMsg")}</button>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

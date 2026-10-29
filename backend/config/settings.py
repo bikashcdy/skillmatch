@@ -141,3 +141,13 @@ REST_FRAMEWORK = {
 }
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+# ---- Email (JobMitra) ----
+FRONTEND_URL = "http://localhost:5173"
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.gmail.com"
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = "chaudharybikash500@gmail.com"
+EMAIL_HOST_PASSWORD = "mpbkjwyptjfarknt"
+DEFAULT_FROM_EMAIL = "JobMitra <chaudharybikash500@gmail.com>"

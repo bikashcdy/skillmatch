@@ -57,6 +57,63 @@ RESOURCES = {
     "flutter": ("Build Android and iOS apps from one Dart codebase.", 6, [
         ("Flutter documentation & codelabs", "https://docs.flutter.dev/get-started/codelab"),
         ("Dart language tour", "https://dart.dev/language")]),
+    "laravel": ("Popular PHP framework; many Nepali agencies hire for it.", 6, [
+        ("Laravel documentation", "https://laravel.com/docs"),
+        ("Laravel Bootcamp", "https://bootcamp.laravel.com/")]),
+    "wordpress": ("Most used website platform; steady freelance and agency work.", 4, [
+        ("Learn WordPress (official)", "https://learn.wordpress.org/")]),
+    "figma": ("Design tool for app and website screens.", 3, [
+        ("Figma Learn Design", "https://www.figma.com/resources/learn-design/")]),
+    "ui/ux design": ("Designing screens that are easy and pleasant to use.", 8, [
+        ("Google UX Design Certificate (Coursera, financial aid available)", "https://www.coursera.org/professional-certificates/google-ux-design"),
+        ("Interaction Design Foundation articles", "https://www.interaction-design.org/literature")]),
+    "graphic design": ("Posters, social media and brand visuals.", 6, [
+        ("Canva Design School", "https://www.canva.com/designschool/")]),
+    "video editing": ("Editing reels, ads and tutorials.", 6, [
+        ("DaVinci Resolve free training", "https://www.blackmagicdesign.com/products/davinciresolve/training")]),
+    "digital marketing": ("SEO, social media and ads; in demand at Nepali startups and agencies.", 6, [
+        ("Google Digital Garage", "https://learndigital.withgoogle.com/digitalgarage"),
+        ("HubSpot Academy (free courses)", "https://academy.hubspot.com/")]),
+    "content writing": ("Writing blogs, captions and website copy.", 4, [
+        ("HubSpot Academy: Content Marketing", "https://academy.hubspot.com/courses/content-marketing")]),
+    "accounting": ("Bookkeeping, VAT and Tally; needed in every business.", 8, [
+        ("AccountingCoach (free lessons)", "https://www.accountingcoach.com/"),
+        ("Tally learning hub", "https://tallysolutions.com/learning-hub/")]),
+    "sales": ("Finding and closing customers.", 4, [
+        ("HubSpot Academy: Sales", "https://academy.hubspot.com/courses/sales")]),
+    "customer service": ("Helping customers by phone, chat and email.", 3, [
+        ("HubSpot Academy: Customer Service", "https://academy.hubspot.com/courses/customer-service")]),
+    "project management": ("Planning work, teams and deadlines (Scrum, Agile).", 4, [
+        ("The Scrum Guide", "https://scrumguides.org/"),
+        ("Atlassian Agile Coach", "https://www.atlassian.com/agile")]),
+    "ms office": ("Word, Excel and PowerPoint for everyday office work.", 3, [
+        ("Microsoft Support training", "https://support.microsoft.com/en-us/training")]),
+    "linux": ("Command line and servers; the base of most hosting.", 4, [
+        ("Linux Journey", "https://linuxjourney.com/")]),
+    "networking": ("How networks work: IP, routing, switching.", 8, [
+        ("Cisco Networking Academy", "https://www.netacad.com/")]),
+    "cybersecurity": ("Protecting systems and data.", 10, [
+        ("TryHackMe (guided labs)", "https://tryhackme.com/")]),
+    "devops": ("Automating build, test and deployment.", 8, [
+        ("roadmap.sh DevOps path", "https://roadmap.sh/devops")]),
+    "vue": ("Friendly JavaScript framework for interfaces.", 4, [
+        ("Vue tutorial", "https://vuejs.org/tutorial/")]),
+    "angular": ("Google's framework for large web apps.", 6, [
+        ("Angular tutorials", "https://angular.dev/tutorials")]),
+    "next.js": ("React framework for fast, SEO-friendly sites.", 3, [
+        ("Learn Next.js", "https://nextjs.org/learn")]),
+    "react native": ("Build mobile apps with React.", 6, [
+        ("React Native docs", "https://reactnative.dev/docs/getting-started")]),
+    "android": ("Native Android apps with Kotlin.", 8, [
+        ("Android Developers courses", "https://developer.android.com/courses")]),
+    "ios": ("Apple apps with Swift and SwiftUI.", 8, [
+        ("SwiftUI tutorials", "https://developer.apple.com/tutorials/swiftui")]),
+    "c#": ("Microsoft language for .NET backends and games.", 8, [
+        ("C# docs (Microsoft Learn)", "https://learn.microsoft.com/en-us/dotnet/csharp/")]),
+    "spring boot": ("Java framework for production backends.", 8, [
+        ("Spring guides", "https://spring.io/guides")]),
+    "firebase": ("Google's backend for mobile and web apps.", 3, [
+        ("Firebase documentation", "https://firebase.google.com/docs")]),
     "git": ("Version control; every team expects it.", 1, [
         ("Pro Git book (free)", "https://git-scm.com/book/en/v2"),
         ("GitHub Skills", "https://skills.github.com/")]),
@@ -85,6 +142,49 @@ RESOURCES = {
         ("Write a project README or blog post for every project you build", "https://www.freecodecamp.org/news/")]),
 }
 
+import re
+
+HEALTH_CHECKS = [
+    # key, label, weight, fix tip
+    ("email", "Email address", 10, "Add a professional email address near your name."),
+    ("phone", "Phone number", 10, "Add your phone number (for example +977 98XXXXXXXX)."),
+    ("skills_section", "Skills section", 15, "Add a clear 'Skills' heading and list your tools and technologies."),
+    ("education", "Education", 10, "Add an 'Education' section with your degree and college."),
+    ("experience", "Experience or internships", 10, "Add work, internship or volunteer experience, even short ones."),
+    ("projects", "Projects", 15, "Add 2-3 projects with what you built and the technologies you used."),
+    ("dates", "Dates and years", 10, "Add dates (2023-2024) so employers can see your timeline."),
+    ("links", "GitHub / LinkedIn / portfolio link", 10, "Add your GitHub, LinkedIn or portfolio link."),
+    ("length", "Enough detail (not too short)", 10, "Your resume is very short. Describe what you did in each project or job."),
+]
+
+
+def resume_health(text):
+    """Score a resume out of 100 and say what to fix."""
+    t = text or ""
+    low = t.lower()
+    words = len(re.findall(r"\w+", t))
+    found = {
+        "email": bool(re.search(r"[\w.+-]+@[\w-]+\.[\w.]+", t)),
+        "phone": bool(re.search(r"(\+?977[\s-]?)?\b9[78]\d[\s-]?\d{3}[\s-]?\d{4}\b|\b\d{3}[\s-]?\d{3}[\s-]?\d{4}\b|\b0\d{1,2}[\s-]?\d{6,7}\b", t)),
+        "skills_section": bool(re.search(r"\b(skills?|technical skills|technologies|expertise)\b", low)),
+        "education": bool(re.search(r"\b(education|bachelor|master|diploma|college|university|campus|\+2|bca|bsc|bit|school)\b", low)),
+        "experience": bool(re.search(r"\b(experience|intern|internship|worked|work history|employment|volunteer|freelanc)", low)),
+        "projects": bool(re.search(r"\b(projects?|built|developed|created|designed)\b", low)),
+        "dates": len(re.findall(r"\b(19|20)\d{2}\b", t)) >= 2,
+        "links": bool(re.search(r"(github\.com|linkedin\.com|behance\.net|portfolio|gitlab\.com)", low)),
+        "length": words >= 150,
+    }
+    checks, score = [], 0
+    for key, label, weight, tip in HEALTH_CHECKS:
+        ok = found[key]
+        score += weight if ok else 0
+        checks.append({"key": key, "label": label, "ok": ok, "tip": "" if ok else tip})
+    if words > 1100:
+        checks.append({"key": "too_long", "label": "Not too long", "ok": False,
+                       "tip": "Your resume is long. Keep it to 1-2 pages."})
+    return {"score": score, "words": words, "checks": checks}
+
+
 GENERAL_IDEAS = [
     "Build 2-3 small projects that use the skills you are learning and publish them on GitHub.",
     "Follow a structured path on roadmap.sh (https://roadmap.sh/) so you know what comes next.",
@@ -108,7 +208,7 @@ def _resources_for(skill):
         return why, weeks, [{"label": l, "url": u} for l, u in links]
     q = skill.replace(" ", "+")
     return (
-        f"Required by employers on SkillMatch for {skill}.",
+        f"Required by employers on JobMitra for {skill}.",
         4,
         [
             {"label": f"Search free {skill} courses on YouTube", "url": f"https://www.youtube.com/results?search_query=learn+{q}+full+course"},
@@ -117,7 +217,7 @@ def _resources_for(skill):
     )
 
 
-def build_recommendations(resume, jobs):
+def build_recommendations(resume, jobs):  # noqa: C901
     """Return skill gaps (ranked by impact), best-fit jobs and experience/education tips."""
     have = set(resume.extracted_skills)
     baseline = {j.id: score_match(resume, j) for j in jobs}
@@ -194,6 +294,7 @@ def build_recommendations(resume, jobs):
     avg_now = round(sum(b["match"] for b in best[:5]) / max(len(best[:5]), 1), 1)
     avg_after = round(sum(b["match_after"] for b in best[:5]) / max(len(best[:5]), 1), 1)
     return {
+        "health": resume_health(resume.raw_text),
         "skills_have": sorted(have),
         "skill_gaps": skill_gaps,
         "best_jobs": best[:6],

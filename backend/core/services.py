@@ -1,6 +1,7 @@
 from django.db import transaction
 
-from .matching import parse_resume, score_match
+from .matching import parse_resume, refresh_skills, score_match
+from . import notifications
 from .models import Application, Job
 
 RELATED_THRESHOLD = 50.0  # minimum match % for a job to count as "related"
@@ -12,6 +13,8 @@ def apply_to_job(candidate, job, resume, auto_apply_related=False):
     """Apply to `job`. If the candidate opted in, also apply to related open jobs."""
     if not resume.extracted_skills and not resume.raw_text:
         parse_resume(resume)
+    else:
+        refresh_skills(resume)
 
     created = []
     app, was_new = Application.objects.get_or_create(
@@ -48,6 +51,8 @@ def apply_to_job(candidate, job, resume, auto_apply_related=False):
                     **result
                 )
             )
+    for app_ in created:
+        transaction.on_commit(lambda a=app_: notifications.strong_match(a))
     return created
 
 
@@ -58,8 +63,11 @@ def set_application_status(application, new_status):
             application.job.applications.filter(status=Application.SELECTED).exclude(
                 pk=application.pk
             ).update(status=Application.APPLIED)
+        changed = application.status != new_status
         application.status = new_status
         application.save(update_fields=["status"])
+    if changed and new_status in (Application.SELECTED, Application.REJECTED):
+        notifications.application_decision(application)
     return application
 
 
