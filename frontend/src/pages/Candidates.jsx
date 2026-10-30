@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import api, { errorText } from "../api";
+import api, { errorText, openResume } from "../api";
 import { Bar, Empty, MatchRing, Modal, Skeleton, StatusBadge, skillLabel, useToast } from "../ui.jsx";
 import { useT } from "../i18n.jsx";
 
@@ -67,7 +67,7 @@ export default function Candidates() {
           )}
           <div className="row" style={{ marginTop: 14 }}>
             <button onClick={() => setOpen(open === a.id ? null : a.id)}>{open === a.id ? t("hideDetails") : t("details")}</button>
-            {a.resume_url && <a className="btn" href={a.resume_url} target="_blank" rel="noreferrer">📄 {t("resume")}</a>}
+            <button onClick={() => openResume(a.resume).catch((e) => toast(errorText(e, "Could not open the file."), "err"))}>📄 {t("resume")}</button>
             <button onClick={() => setMsg({ app: a, text: a.recruiter_note || "" })}>💬 {t("message")}</button>
             {a.status !== "selected" && <button className="primary" onClick={() => setStatus(a, "selected")}>{t("select")}</button>}
             {a.status !== "rejected" ? <button className="danger" onClick={() => setStatus(a, "rejected")}>{t("reject")}</button>

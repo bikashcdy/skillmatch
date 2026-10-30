@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { errorText, login } from "../api";
 import { useT } from "../i18n.jsx";
+import { PasswordInput } from "../ui_extra.jsx";
 
 export default function Login() {
   const { t } = useT();
@@ -37,9 +38,10 @@ export default function Login() {
         <h2>{t("welcomeBack")}</h2>
         {error && <p className="error">{error}</p>}
         <div><label className="f">{t("username")}</label>
-          <input value={form.username} autoFocus onChange={(e) => setForm({ ...form, username: e.target.value })} required /></div>
+          <input value={form.username} autoFocus autoComplete="username" onChange={(e) => setForm({ ...form, username: e.target.value })} required /></div>
         <div><label className="f">{t("password")}</label>
-          <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /></div>
+          <PasswordInput autoComplete="current-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /></div>
+        <div style={{ textAlign: "right", marginTop: -6 }}><Link to="/forgot-password" className="muted" style={{ fontSize: 13.5 }}>Forgot password?</Link></div>
         <button className="primary" disabled={busy}>{busy ? t("signingIn") : t("login")}</button>
         <p className="muted">{t("noAccount")} <Link to="/register" style={{ color: "var(--accent)", fontWeight: 600 }}>{t("createOne")}</Link></p>
       </form>

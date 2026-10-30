@@ -124,3 +124,24 @@ export const timeAgo = (iso) => {
 const SPECIAL = { sql: "SQL", css: "CSS", html: "HTML", aws: "AWS", php: "PHP", "rest api": "REST API",
   "node.js": "Node.js", "c++": "C++", javascript: "JavaScript", typescript: "TypeScript", mongodb: "MongoDB" };
 export const skillLabel = (s) => SPECIAL[s] || s.replace(/\b\w/g, (c) => c.toUpperCase());
+
+// "today", "yesterday", "3 days ago" (translated)
+export const ago = (iso, t) => {
+  const d = Math.floor((Date.now() - new Date(iso)) / 86400000);
+  return d <= 0 ? t("today") : d === 1 ? t("yesterday") : t("daysAgo", { n: d });
+};
+export const formatDate = (d) => (d ? new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "");
+export const expiryText = (job, t) => {
+  if (!job.expires_at) return t("noDeadline");
+  const n = job.days_left;
+  if (n < 0) return t("expired");
+  if (n === 0) return t("lastDay");
+  return n === 1 ? t("dayLeft") : t("daysLeft", { n });
+};
+export const expText = (y, t) => {
+  y = Number(y) || 0;
+  if (y === 0) return t("fresherShort");
+  if (y < 1) return t("months", { n: Math.round(y * 12) });
+  return y === 1 ? t("year1") : t("years", { n: y });
+};
+export const eduText = (level, t) => t(`edu_${level || "none"}`);

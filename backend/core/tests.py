@@ -22,14 +22,14 @@ def make_docx(text):
 
 @override_settings(MEDIA_ROOT=TEST_MEDIA)
 class FullFlowTest(APITestCase):
-    def login(self, username, password="pass12345"):
+    def login(self, username, password="Pass@12345"):
         r = self.client.post("/api/auth/login/", {"username": username, "password": password})
         self.assertEqual(r.status_code, 200, r.content)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {r.data['access']}")
 
     def register(self, **kw):
         self.client.credentials()
-        r = self.client.post("/api/auth/register/", {"password": "pass12345", **kw})
+        r = self.client.post("/api/auth/register/", {"password": "Pass@12345", **kw})
         self.assertEqual(r.status_code, 201, r.content)
 
     def post_job(self, **kw):
@@ -39,8 +39,12 @@ class FullFlowTest(APITestCase):
 
     def test_full_flow(self):
         # --- recruiter posts 3 jobs
-        self.register(username="rec", email="r@x.com", role="recruiter", company_name="Acme")
-        self.login("rec")
+        self.register(username="recruiter1", email="r@x.com", role="recruiter", company_name="Acme")
+        self.login("recruiter1")
+        self.assertEqual(self.client.post("/api/recruiter/jobs/", {"title": "x", "description": "d", "required_skills": ["python"]},
+                                          format="json").status_code, 403)       # not approved yet
+        User.objects.filter(username="recruiter1").update(is_approved=True)
+        self.login("recruiter1")
         backend = self.post_job(title="Backend Dev", description="d", required_skills=["Python", "Django", "SQL"],
                                 min_experience_years=1, required_education="bachelor")
         frontend = self.post_job(title="Frontend Dev", description="d", required_skills=["ReactJS", "JavaScript", "CSS"],
@@ -52,10 +56,10 @@ class FullFlowTest(APITestCase):
                            min_experience_years=1, required_education="bachelor")
 
         # --- two candidates
-        self.register(username="strong", email="s@x.com", role="candidate")
-        self.register(username="weak", email="w@x.com", role="candidate")
+        self.register(username="strongone", email="s@x.com", role="candidate")
+        self.register(username="weakone", email="w@x.com", role="candidate")
 
-        self.login("strong")
+        self.login("strongone")
         strong_cv = "BCA graduate. 3 years experience building Django REST APIs in Python with MySQL, Git and unit testing."
         r = self.client.post(f"/api/jobs/{backend}/apply/",
                              {"resume": make_docx(strong_cv), "auto_apply_related": "true"}, format="multipart")
@@ -69,7 +73,7 @@ class FullFlowTest(APITestCase):
         self.assertNotIn("Frontend Dev", by_title)           # unrelated, below threshold
         self.assertNotIn("ML Engineer", by_title)
 
-        self.login("weak")
+        self.login("weakone")
         weak_cv = "Diploma holder, 1 year experience. Knows Python and some Excel."
         r = self.client.post(f"/api/jobs/{backend}/apply/", {"resume": make_docx(weak_cv)}, format="multipart")
         self.assertEqual(r.status_code, 201, r.content)
@@ -77,20 +81,20 @@ class FullFlowTest(APITestCase):
         self.assertLess(r.data[0]["match_percentage"], 60)
 
         # --- recruiter sees ranking and selects best
-        self.login("rec")
+        self.login("recruiter1")
         r = self.client.get(f"/api/recruiter/jobs/{backend}/candidates/")
-        self.assertEqual([a["candidate_name"] for a in r.data], ["strong", "weak"])
+        self.assertEqual([a["candidate_name"] for a in r.data], ["strongone", "weakone"])
         r = self.client.post(f"/api/recruiter/jobs/{backend}/select-best/")
-        self.assertEqual(r.data["candidate_name"], "strong")
-        self.assertEqual(Application.objects.get(job_id=backend, candidate__username="strong").status, "selected")
+        self.assertEqual(r.data["candidate_name"], "strongone")
+        self.assertEqual(Application.objects.get(job_id=backend, candidate__username="strongone").status, "selected")
 
         # --- permissions
         self.assertEqual(self.client.get("/api/admin/stats/").status_code, 403)
-        self.login("weak")
+        self.login("weakone")
         self.assertEqual(self.client.post("/api/recruiter/jobs/", {"title": "x"}, format="json").status_code, 403)
 
         # --- admin
-        User.objects.create_user("boss", password="pass12345", role="admin")
+        User.objects.create_user("boss", password="Pass@12345", role="admin")
         self.login("boss")
         r = self.client.get("/api/admin/stats/")
         self.assertEqual(r.data["applications"], 3)
@@ -201,7 +205,7 @@ class SearchAndStatusTest(APITestCase):
         self.assertEqual(get(q="css"), ["Designer"])
         meta = self.client.get("/api/jobs/meta/").data
         self.assertEqual(meta["stats"]["jobs"], 2)
-        self.assertIn("Remote", meta["locations"])
+        self.assertNotIn("locations", meta)           # candidates get no city list
 
     def test_duplicate_apply_missing_job_and_single_selected(self):
         for n in ("c1", "c2"):
@@ -252,7 +256,7 @@ class RecommendationTest(APITestCase):
         self.assertTrue(d["skill_gaps"][0]["resources"][0]["url"].startswith("https://"))
         self.assertGreaterEqual(d["avg_after"], d["avg_now"])
         self.assertTrue(any(t["area"] == "Experience" for t in d["tips"]))
-        cities = [c["name"] for c in self.client.get("/api/jobs/meta/").data["cities"]]
+        cities = self.client.get("/api/jobs/meta/").data["cities"]
         self.assertIn("Pokhara", cities)
         self.assertIn("Butwal", cities)
 
@@ -276,22 +280,17 @@ class V2FeaturesTest(APITestCase):
         self.assertEqual(r.status_code, 201, r.content)
         return r.data["id"]
 
-    def test_emails_strong_match_decision_note_and_alert(self):
+    def test_emails_strong_match_decision_note_and_reply_to(self):
         from django.core import mail
-        self.login("cand")
-        # candidate scans a resume first, so a later job can alert them
-        self.client.post("/api/resume/", {"resume": self.cv()}, format="multipart")
         self.login("rec")
-        mail.outbox.clear()
         job = self.post_job()
-        self.assertEqual([m.to for m in mail.outbox], [["cand@x.com"]])           # new-job alert
-        self.assertIn("match", mail.outbox[0].subject)
-
         self.login("cand")
         mail.outbox.clear()
         with self.captureOnCommitCallbacks(execute=True):
+            self.client.post("/api/resume/", {"resume": self.cv()}, format="multipart")
             self.assertEqual(self.client.post(f"/api/jobs/{job}/apply/").status_code, 201)
-        self.assertEqual([m.to for m in mail.outbox], [["rec@x.com"]])            # strong match
+        self.assertEqual([m.to for m in mail.outbox], [["rec@x.com"]])            # ONE strong-match email to the recruiter
+        self.assertEqual(mail.outbox[0].reply_to, ["cand@x.com"])
 
         self.login("rec")
         app = self.client.get(f"/api/recruiter/jobs/{job}/candidates/").data[0]["id"]
@@ -305,34 +304,35 @@ class V2FeaturesTest(APITestCase):
         for m in mail.outbox[-2:]:                      # sent "from" the recruiter's company, replies go to them
             self.assertTrue(m.from_email.startswith("Acme via JobMitra"))
             self.assertEqual(m.reply_to, ["rec@x.com"])
-
         self.login("cand")
-        mine = self.client.get("/api/my-applications/").data[0]
-        self.assertEqual(mine["recruiter_note"], "Interview on Sunday")
+        self.assertEqual(self.client.get("/api/my-applications/").data[0]["recruiter_note"], "Interview on Sunday")
 
-    def test_alert_opt_out_and_saved_jobs_and_filters(self):
+    def test_many_strong_matches_send_one_email(self):
         from django.core import mail
-        self.login("cand")
-        self.client.post("/api/resume/", {"resume": self.cv()}, format="multipart")
-        self.assertFalse(self.client.patch("/api/auth/me/", {"email_alerts": False}, format="json").data["email_alerts"])
         self.login("rec")
+        for i in range(3):
+            self.post_job(title=f"Job {i}")
+        self.login("cand")
         mail.outbox.clear()
-        intern = self.post_job(title="Intern", job_type="internship", salary_min=10000, salary_max=15000)
-        self.post_job(title="Senior", job_type="full_time", salary_min=80000, salary_max=120000)
-        self.assertEqual(len(mail.outbox), 0)                                      # opted out
+        with self.captureOnCommitCallbacks(execute=True):
+            j = self.client.get("/api/jobs/").data[0]["id"]
+            self.client.post(f"/api/jobs/{j}/apply/", {"resume": self.cv(), "auto_apply_related": "true"}, format="multipart")
+        self.assertEqual(len(mail.outbox), 1)                                      # not 3
+        self.assertIn("3 strong matches", mail.outbox[0].subject)
+
+    def test_filters(self):
+        self.login("rec")
+        self.post_job(title="Intern", job_type="internship", salary_min=10000, salary_max=15000)
+        self.post_job(title="Senior", job_type="full_time", salary_min=80000, salary_max=120000, location="Kathmandu")
         bad = self.client.post("/api/recruiter/jobs/", {"title": "x", "description": "d", "required_skills": ["python"],
                                "salary_min": 50, "salary_max": 10}, format="json")
         self.assertEqual(bad.status_code, 400)
-
         self.login("cand")
         titles = lambda **p: sorted(j["title"] for j in self.client.get("/api/jobs/", p).data)
         self.assertEqual(titles(job_type="internship"), ["Intern"])
         self.assertEqual(titles(min_salary=50000), ["Senior"])
-        self.assertEqual(self.client.post(f"/api/jobs/{intern}/save/").status_code, 200)
-        self.assertEqual(titles(saved=1), ["Intern"])
-        self.assertTrue(next(j for j in self.client.get("/api/jobs/").data if j["id"] == intern)["saved"])
-        self.client.delete(f"/api/jobs/{intern}/save/")
-        self.assertEqual(titles(saved=1), [])
+        self.assertEqual(titles(location="Kathmandu"), ["Senior"])
+        self.assertEqual(titles(location="Dharan"), [])                            # no jobs there -> empty result
 
     def test_scanner_and_health(self):
         from .matching import extract_skills, normalize_skill
@@ -353,3 +353,234 @@ class V2FeaturesTest(APITestCase):
         r = self.client.post("/api/resume/", {"resume": self.cv()}, format="multipart")
         self.assertIn("score", r.data["health"])
         self.assertIn("health", self.client.get("/api/recommendations/").data)
+
+
+@override_settings(MEDIA_ROOT=TEST_MEDIA)
+class ExpiryAndDetailTest(APITestCase):
+    def login(self, username):
+        r = self.client.post("/api/auth/login/", {"username": username, "password": "pass12345"})
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {r.data['access']}")
+
+    def setUp(self):
+        User.objects.create_user("rec", email="r@x.com", password="pass12345", role=User.RECRUITER, company_name="Acme")
+        User.objects.create_user("cand", email="c@x.com", password="pass12345", role=User.CANDIDATE)
+        self.login("rec")
+
+    def post(self, **kw):
+        base = {"title": "Dev", "description": "Build things", "location": "Pokhara", "required_skills": ["python"],
+                "min_experience_years": 0, "required_education": "bachelor"}
+        return self.client.post("/api/recruiter/jobs/", {**base, **kw}, format="json")
+
+    def test_default_deadline_fresher_and_past_date_rejected(self):
+        import datetime
+        from .models import nepal_today
+        r = self.post()
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.data["min_experience_years"], 0)                       # fresher
+        self.assertEqual(r.data["expires_at"], str(nepal_today() + datetime.timedelta(days=30)))
+        self.assertEqual(r.data["days_left"], 30)
+        past = self.post(expires_at=str(nepal_today() - datetime.timedelta(days=1)))
+        self.assertEqual(past.status_code, 400)
+
+    def test_expired_jobs_disappear_for_candidates(self):
+        import datetime
+        from .models import Job, nepal_today
+        keep = self.post(title="Keep").data["id"]
+        gone = self.post(title="Gone").data["id"]
+        today_job = self.post(title="LastDay", expires_at=str(nepal_today())).data["id"]   # still valid today
+        Job.objects.filter(pk=gone).update(expires_at=nepal_today() - datetime.timedelta(days=1))
+        self.login("cand")
+        titles = sorted(j["title"] for j in self.client.get("/api/jobs/").data)
+        self.assertEqual(titles, ["Keep", "LastDay"])
+        self.assertEqual(self.client.get(f"/api/jobs/{gone}/").status_code, 404)
+        self.assertEqual(self.client.post(f"/api/jobs/{gone}/apply/").status_code, 404)
+        self.assertEqual(self.client.get("/api/jobs/meta/").data["stats"]["jobs"], 2)
+        # recruiter still sees (and can extend) the expired job
+        self.login("rec")
+        mine = {j["title"]: j for j in self.client.get("/api/recruiter/jobs/").data}
+        self.assertTrue(mine["Gone"]["is_expired"])
+        ok = self.client.patch(f"/api/recruiter/jobs/{gone}/",
+                               {"expires_at": str(nepal_today() + datetime.timedelta(days=7))}, format="json")
+        self.assertEqual(ok.status_code, 200, ok.content)
+        self.login("cand")
+        self.assertEqual(self.client.get(f"/api/jobs/{gone}/").status_code, 200)
+
+    def test_detail_has_everything_and_match_breakdown(self):
+        job = self.post(title="Backend", required_skills=["python", "django"], min_experience_years=2).data["id"]
+        self.login("cand")
+        self.client.post("/api/resume/", {"resume": make_docx("I know Python. BCA 2021-2025. " * 5)}, format="multipart")
+        d = self.client.get(f"/api/jobs/{job}/").data
+        for key in ("description", "required_skills", "required_education", "min_experience_years",
+                    "created_at", "expires_at", "days_left", "location", "company"):
+            self.assertIn(key, d)
+        self.assertEqual(d["match_detail"]["matched_skills"], ["python"])
+        self.assertEqual(d["match_detail"]["missing_skills"], ["django"])
+        self.assertIsNotNone(d["resume_match"])
+
+
+@override_settings(MEDIA_ROOT=TEST_MEDIA)
+class AccountRulesTest(APITestCase):
+    GOOD = {"username": "ram_sharma", "email": "Ram.Sharma@Example.com", "password": "Strong@123", "role": "candidate"}
+
+    def post(self, **kw):
+        self.client.credentials()
+        return self.client.post("/api/auth/register/", {**self.GOOD, **kw}, format="json")
+
+    def login(self, username, password="Strong@123"):
+        r = self.client.post("/api/auth/login/", {"username": username, "password": password})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {r.data['access']}")
+        return r
+
+    def test_username_rules(self):
+        for bad in ("abc", "a" * 21, "ram sharma", "1ram_sharma", "ram-sharma", "ram@sharma", "_ramsharma", ""):
+            r = self.post(username=bad)
+            self.assertEqual(r.status_code, 400, bad)
+            self.assertIn("username", r.data, bad)
+        self.assertEqual(self.post().status_code, 201)
+        dup = self.post(username="RAM_SHARMA", email="other@example.com")           # case-insensitive duplicate
+        self.assertEqual(dup.status_code, 400)
+        self.assertIn("already taken", str(dup.data["username"]))
+
+    def test_email_rules(self):
+        for bad in ("", "ram", "ram@", "ram@gmail", "@gmail.com", "ram@gmail..com", "ram sharma@gmail.com", "ram@@gmail.com"):
+            r = self.post(email=bad)
+            self.assertEqual(r.status_code, 400, bad)
+            self.assertIn("email", r.data, bad)
+        self.assertEqual(self.post().status_code, 201)
+        dup = self.post(username="someone_else", email="ram.sharma@example.com")    # same email, different case
+        self.assertEqual(dup.status_code, 400)
+        self.assertIn("already exists", str(dup.data["email"]))
+        from .models import User as U
+        self.assertEqual(U.objects.get(username="ram_sharma").email, "ram.sharma@example.com")  # stored lower-case
+
+    def test_password_rules(self):
+        cases = {"Short@1": "8-64", "alllower@123": "uppercase", "ALLUPPER@123": "lowercase", "NoNumber@abc": "number",
+                 "NoSpecial123": "special", "Has Space@123": "spaces", "Ram_sharma@123": "username", "Ram.Sharma@123": "email"}
+        for pw, word in cases.items():
+            r = self.post(password=pw)
+            self.assertEqual(r.status_code, 400, pw)
+            self.assertIn(word, str(r.data["password"]), pw)
+        self.assertEqual(self.post().status_code, 201)
+
+    def test_recruiter_needs_company_and_approval(self):
+        r = self.post(role="recruiter", company_name="A")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("company_name", r.data)
+        r = self.post(role="recruiter", company_name="TechNepal")
+        self.assertEqual(r.status_code, 201)
+        self.assertTrue(r.data["waiting_for_approval"])
+        self.assertEqual(self.post(role="admin", username="evil_admin", email="e@example.com").status_code, 400)
+
+    def test_live_check_endpoint(self):
+        self.post()
+        r = self.client.post("/api/auth/check/", {"username": "ram_sharma", "email": "nope"}, format="json")
+        self.assertIn("already taken", str(r.data["username"]))
+        self.assertTrue(r.data["email"])
+        self.assertEqual(self.client.post("/api/auth/check/", {"username": "fresh_name", "email": "fresh@example.com"},
+                                          format="json").data, {"username": [], "email": []})
+
+    def test_forgot_and_reset_password(self):
+        from django.core import mail
+        import re
+        self.post()
+        mail.outbox.clear()
+        r = self.client.post("/api/auth/forgot-password/", {"email": "nobody@example.com"}, format="json")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(mail.outbox), 0)                                       # same answer, no email, nobody revealed
+        self.client.post("/api/auth/forgot-password/", {"email": "RAM.SHARMA@example.com"}, format="json")
+        self.assertEqual(len(mail.outbox), 1)
+        link = re.search(r"uid=([^&\s]+)&token=(\S+)", mail.outbox[0].body)
+        uid, token = link.group(1), link.group(2)
+        weak = self.client.post("/api/auth/reset-password/", {"uid": uid, "token": token, "password": "weak"}, format="json")
+        self.assertEqual(weak.status_code, 400)
+        bad_token = self.client.post("/api/auth/reset-password/", {"uid": uid, "token": "x-y", "password": "Brand@New99"}, format="json")
+        self.assertEqual(bad_token.status_code, 400)
+        ok = self.client.post("/api/auth/reset-password/", {"uid": uid, "token": token, "password": "Brand@New99"}, format="json")
+        self.assertEqual(ok.status_code, 200, ok.content)
+        self.login("ram_sharma", "Brand@New99")
+        again = self.client.post("/api/auth/reset-password/", {"uid": uid, "token": token, "password": "Another@99x"}, format="json")
+        self.assertEqual(again.status_code, 400)                                    # a link works only once
+
+    def test_change_password_and_profile(self):
+        self.post()
+        self.login("ram_sharma")
+        self.assertEqual(self.client.post("/api/auth/change-password/", {"old_password": "wrong", "new_password": "Brand@New99"},
+                                          format="json").status_code, 400)
+        self.assertEqual(self.client.post("/api/auth/change-password/", {"old_password": "Strong@123", "new_password": "weak"},
+                                          format="json").status_code, 400)
+        self.assertEqual(self.client.post("/api/auth/change-password/", {"old_password": "Strong@123", "new_password": "Brand@New99"},
+                                          format="json").status_code, 200)
+        self.login("ram_sharma", "Brand@New99")
+        self.assertEqual(self.client.patch("/api/auth/me/", {"email": "bad"}, format="json").status_code, 400)
+        r = self.client.patch("/api/auth/me/", {"email": "new.mail@example.com"}, format="json")
+        self.assertEqual(r.data["email"], "new.mail@example.com")
+
+
+@override_settings(MEDIA_ROOT=TEST_MEDIA)
+class PrivacyAndAdminTest(APITestCase):
+    def login(self, username):
+        r = self.client.post("/api/auth/login/", {"username": username, "password": "pass12345"})
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {r.data['access']}")
+
+    def setUp(self):
+        from .models import Job
+        self.rec = User.objects.create_user("recruiter1", email="r@x.com", password="pass12345", role=User.RECRUITER, company_name="Acme")
+        self.rec2 = User.objects.create_user("recruiter2", email="r2@x.com", password="pass12345", role=User.RECRUITER, company_name="Other")
+        self.cand = User.objects.create_user("candidate1", email="c@x.com", password="pass12345")
+        User.objects.create_user("stranger1", email="s@x.com", password="pass12345")
+        self.admin = User.objects.create_user("admin1", email="a@x.com", password="pass12345", role=User.ADMIN)
+        self.job = Job.objects.create(recruiter=self.rec, title="Dev", company="Acme", description="d", location="Pokhara",
+                                      required_skills=["python"])
+        self.login("candidate1")
+        self.client.post(f"/api/jobs/{self.job.id}/apply/", {"resume": make_docx("Python developer. BCA 2022. " * 5)}, format="multipart")
+        self.resume = Resume.objects.get(user=self.cand)
+
+    def test_resume_files_are_private(self):
+        url = f"/api/resumes/{self.resume.id}/file/"
+        self.client.credentials()
+        self.assertEqual(self.client.get(url).status_code, 401)                      # not logged in
+        self.assertEqual(self.client.get("/media/" + self.resume.file.name).status_code, 404)   # no public media route
+        for who, code in (("candidate1", 200), ("recruiter1", 200), ("admin1", 200), ("recruiter2", 404), ("stranger1", 404)):
+            self.login(who)
+            self.assertEqual(self.client.get(url).status_code, code, who)
+
+    def test_withdraw_and_delete_resume(self):
+        self.login("candidate1")
+        self.assertEqual(self.client.delete(f"/api/resumes/{self.resume.id}/").status_code, 400)    # still used
+        app = Application.objects.get(candidate=self.cand)
+        self.assertEqual(self.client.delete(f"/api/my-applications/{app.id}/").status_code, 204)
+        self.assertEqual(self.client.delete(f"/api/resumes/{self.resume.id}/").status_code, 204)
+        self.assertFalse(Resume.objects.filter(pk=self.resume.id).exists())
+        self.assertEqual(self.client.get("/api/resumes/").data, [])
+
+    def test_cannot_withdraw_when_selected_or_someone_elses(self):
+        app = Application.objects.get(candidate=self.cand)
+        app.status = "selected"; app.save()
+        self.login("candidate1")
+        self.assertEqual(self.client.delete(f"/api/my-applications/{app.id}/").status_code, 400)
+        self.login("stranger1")
+        self.assertEqual(self.client.delete(f"/api/my-applications/{app.id}/").status_code, 404)
+
+    def test_admin_approval_and_job_removal(self):
+        from django.core import mail
+        self.rec.is_approved = False; self.rec.save()
+        self.login("candidate1")
+        self.assertEqual(self.client.get("/api/jobs/").data, [])                     # unapproved recruiter's jobs are hidden
+        self.login("recruiter1")
+        self.assertEqual(self.client.post("/api/recruiter/jobs/", {"title": "x", "description": "d", "required_skills": ["python"]},
+                                          format="json").status_code, 403)
+        self.login("candidate1")
+        self.assertEqual(self.client.post(f"/api/admin/users/{self.rec.id}/approve/").status_code, 403)
+        self.login("admin1")
+        mail.outbox.clear()
+        r = self.client.post(f"/api/admin/users/{self.rec.id}/approve/", {"approved": True}, format="json")
+        self.assertTrue(r.data["is_approved"])
+        self.assertEqual(mail.outbox[0].to, ["r@x.com"])
+        users = {u["username"]: u for u in self.client.get("/api/admin/users/").data}
+        self.assertIn("company_name", users["recruiter1"])
+        self.assertEqual(len(self.client.get("/api/admin/jobs/").data), 1)
+        self.assertEqual(self.client.delete(f"/api/admin/jobs/{self.job.id}/").status_code, 204)
+        self.assertEqual(self.client.get("/api/admin/jobs/").data, [])
+        self.login("candidate1")
+        self.assertEqual(self.client.get("/api/admin/jobs/").status_code, 403)

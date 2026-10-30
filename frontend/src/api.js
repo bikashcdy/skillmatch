@@ -55,6 +55,34 @@ export const currentUser = () => {
   try { return JSON.parse(localStorage.getItem("user") || "null"); } catch { return null; }
 };
 
+// Resume files are private: fetch with the login token. PDFs, images and text open in a new tab;
+// Word files (which browsers cannot display) are downloaded instead.
+export async function openResume(resumeId) {
+  const res = await api.get(`/resumes/${resumeId}/file/`, { responseType: "blob" });
+  const type = res.data.type || "";
+  const disposition = res.headers["content-disposition"] || "";
+  const name = decodeURIComponent((disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i) || [])[1] || "resume");
+  const url = URL.createObjectURL(res.data);
+  if (type === "application/pdf" || type.startsWith("image/") || type.startsWith("text/")) {
+    window.open(url, "_blank");
+  } else {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+// Keep the saved user (role, approval) up to date, e.g. after an admin approves a recruiter.
+export async function refreshUser() {
+  const { data } = await api.get("/auth/me/");
+  localStorage.setItem("user", JSON.stringify(data));
+  return data;
+}
+
 // Turn any API error into a short human sentence.
 export function errorText(err, fallback = "Something went wrong.") {
   if (!err.response) return "Cannot reach the server. Is the backend running on port 8000?";

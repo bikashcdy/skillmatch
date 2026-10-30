@@ -1,5 +1,12 @@
+import datetime
+import os
+
+from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
 from rest_framework import generics, permissions, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.decorators import api_view, parser_classes, permission_classes
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
@@ -14,7 +21,7 @@ from .matching import (
     refresh_skills,
     score_match,
 )
-from .models import Application, Job, Resume, SavedJob, User
+from .models import Application, Job, Resume, User, nepal_today
 from .serializers import (
     ApplicationSerializer,
     JobSerializer,
@@ -22,6 +29,7 @@ from .serializers import (
     ResumeSerializer,
 )
 from . import notifications
+from . import validators as V
 from .recommendations import NEPAL_CITIES, build_recommendations, resume_health
 from .services import apply_to_job, select_best_candidate, set_application_status
 
@@ -49,24 +57,116 @@ class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
 
+    def create(self, request, *args, **kwargs):
+        ser = self.get_serializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        user = ser.save()
+        if user.role == User.RECRUITER:
+            notifications.recruiter_waiting(user)
+        data = dict(ser.data)
+        data["waiting_for_approval"] = not user.is_approved
+        return Response(data, status=201)
+
+
+@api_view(["POST"])
+@permission_classes([permissions.AllowAny])
+def check_availability(request):
+    """Live check while typing in the sign-up form: is this username / email free and valid?"""
+    out = {}
+    if "username" in request.data:
+        u = (request.data.get("username") or "").strip()
+        errors = V.username_errors(u)
+        if not errors and User.objects.filter(username__iexact=u).exists():
+            errors = ["This username is already taken."]
+        out["username"] = errors
+    if "email" in request.data:
+        e = (request.data.get("email") or "").strip().lower()
+        errors = V.email_errors(e)
+        if not errors and User.objects.filter(email__iexact=e).exists():
+            errors = ["An account with this email already exists."]
+        out["email"] = errors
+    return Response(out)
+
+
+def _user_from_uid(uid):
+    try:
+        return User.objects.get(pk=force_str(urlsafe_base64_decode(uid or "")))
+    except (User.DoesNotExist, ValueError, TypeError, OverflowError):
+        return None
+
+
+@api_view(["POST"])
+@permission_classes([permissions.AllowAny])
+def forgot_password(request):
+    email = (request.data.get("email") or "").strip()
+    if email:
+        for user in User.objects.filter(email__iexact=email, is_active=True):
+            notifications.password_reset_email(user)
+    return Response({"detail": "If that email has an account, a reset link is on its way."})  # never reveal who exists
+
+
+@api_view(["POST"])
+@permission_classes([permissions.AllowAny])
+def reset_password(request):
+    user = _user_from_uid(request.data.get("uid"))
+    password = request.data.get("password") or ""
+    if not user or not notifications.reset_tokens.check_token(user, request.data.get("token") or ""):
+        return Response({"detail": "This link is invalid or has expired. Ask for a new reset email."}, status=400)
+    errors = V.password_errors(password, user.username, user.email)
+    if errors:
+        return Response({"detail": " ".join(errors)}, status=400)
+    user.set_password(password)
+    user.save(update_fields=["password"])
+    return Response({"detail": "Password changed. You can log in now."})
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def change_password(request):
+    u = request.user
+    if not u.check_password(request.data.get("old_password") or ""):
+        return Response({"detail": "Your current password is not correct."}, status=400)
+    errors = V.password_errors(request.data.get("new_password") or "", u.username, u.email)
+    if errors:
+        return Response({"detail": " ".join(errors)}, status=400)
+    u.set_password(request.data["new_password"])
+    u.save(update_fields=["password"])
+    return Response({"detail": "Password changed."})
+
+
+def _me(u):
+    return {
+        "id": u.id,
+        "username": u.username,
+        "email": u.email,
+        "role": u.role,
+        "company_name": u.company_name,
+        "is_approved": u.is_approved,
+    }
+
 
 @api_view(["GET", "PATCH"])
 @permission_classes([permissions.IsAuthenticated])
 def me(request):
     u = request.user
-    if request.method == "PATCH" and "email_alerts" in request.data:
-        u.email_alerts = str(request.data["email_alerts"]).lower() in ("1", "true", "yes")
-        u.save(update_fields=["email_alerts"])
-    return Response(
-        {
-            "id": u.id,
-            "username": u.username,
-            "email": u.email,
-            "role": u.role,
-            "company_name": u.company_name,
-            "email_alerts": u.email_alerts,
-        }
-    )
+    if request.method == "PATCH":
+        if "email" in request.data:
+            email = (request.data.get("email") or "").strip().lower()
+            errors = V.email_errors(email)
+            if not errors and User.objects.filter(email__iexact=email).exclude(pk=u.pk).exists():
+                errors = ["An account with this email already exists."]
+            if errors:
+                return Response({"email": errors}, status=400)
+            u.email = email
+            u.save(update_fields=["email"])
+        if u.role == User.RECRUITER and "company_name" in request.data:
+            errors = V.company_errors(request.data.get("company_name"))
+            if errors:
+                return Response({"company_name": errors}, status=400)
+            u.company_name = request.data["company_name"].strip()
+            u.save(update_fields=["company_name"])
+            Job.objects.filter(recruiter=u).update(company=u.company_name)
+    return Response(_me(u))
 
 
 # ---------- Jobs ----------
@@ -79,7 +179,7 @@ class JobListView(generics.ListAPIView):
 
     def get_queryset(self):
         p = self.request.query_params
-        qs = Job.objects.filter(is_open=True).order_by("-created_at")
+        qs = Job.active().order_by("-created_at")
         loc = (p.get("location") or "").strip()
         if loc:
             qs = qs.filter(location__icontains=loc)
@@ -109,9 +209,6 @@ class JobListView(generics.ListAPIView):
             min_salary = 0
         if min_salary:  # keep jobs that can pay at least this much; hide jobs with no salary shown
             jobs = [j for j in jobs if (j.salary_max or j.salary_min or 0) >= min_salary]
-        if p.get("saved") in ("1", "true"):
-            ids = set(SavedJob.objects.filter(user=self.request.user).values_list("job_id", flat=True))
-            jobs = [j for j in jobs if j.id in ids]
         return jobs
 
     def get_serializer_context(self):
@@ -119,14 +216,38 @@ class JobListView(generics.ListAPIView):
         u = self.request.user
         if u.role == User.CANDIDATE:
             ctx["my_apps"] = {a.job_id: a for a in Application.objects.filter(candidate=u)}
-            ctx["saved_ids"] = set(SavedJob.objects.filter(user=u).values_list("job_id", flat=True))
             resume = u.resumes.order_by("-uploaded_at").first()
             if resume:
                 refresh_skills(resume)
                 ctx["match_map"] = {
                     j.id: score_match(resume, j)["match_percentage"]
-                    for j in Job.objects.filter(is_open=True)
+                    for j in Job.active()
                 }
+        return ctx
+
+
+class JobDetailView(generics.RetrieveAPIView):
+    """Full details of one active job, with the candidate's own match breakdown."""
+
+    serializer_class = JobSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    lookup_url_kwarg = "job_id"
+
+    def get_queryset(self):
+        return Job.active()
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        u = self.request.user
+        if u.role == User.CANDIDATE:
+            job = self.get_object()
+            ctx["my_apps"] = {a.job_id: a for a in Application.objects.filter(candidate=u, job=job)}
+            resume = u.resumes.order_by("-uploaded_at").first()
+            if resume:
+                refresh_skills(resume)
+                detail = score_match(resume, job)
+                ctx["match_map"] = {job.id: detail["match_percentage"]}
+                ctx["match_detail"] = {job.id: detail}
         return ctx
 
 
@@ -134,25 +255,20 @@ class JobListView(generics.ListAPIView):
 @permission_classes([permissions.IsAuthenticated])
 def job_meta(request):
     """Data for the search bar: locations, trending skills and headline numbers."""
-    jobs = list(Job.objects.filter(is_open=True))
-    skills, locations = {}, {}
+    jobs = list(Job.active())
+    skills = {}
     for j in jobs:
         for sk in j.required_skills:
             skills[sk] = skills.get(sk, 0) + 1
-        loc = (j.location or "").strip()
-        if loc:
-            locations[loc] = locations.get(loc, 0) + 1
     ranked = sorted(skills.items(), key=lambda x: (-x[1], x[0]))
     return Response(
         {
             "skills": [{"name": n, "count": c} for n, c in ranked],
-            "locations": sorted(locations),
-            "cities": [{"name": c, "count": locations.get(c, 0)} for c in NEPAL_CITIES],
+            "cities": NEPAL_CITIES,  # only used by the recruiter's "post a job" dropdown
             "catalog": sorted(SKILLS),
             "stats": {
                 "jobs": len(jobs),
                 "companies": len({j.company for j in jobs}),
-                "candidates": User.objects.filter(role=User.CANDIDATE, is_active=True).count(),
             },
         }
     )
@@ -167,8 +283,12 @@ class RecruiterJobView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         u = self.request.user
-        job = serializer.save(recruiter=u, company=u.company_name or u.username)
-        notifications.new_job_alerts(job)
+        if not u.is_approved:
+            raise PermissionDenied("Your recruiter account is waiting for admin approval. You can post jobs once it is approved.")
+        extra = {}
+        if not serializer.validated_data.get("expires_at"):
+            extra["expires_at"] = nepal_today() + datetime.timedelta(days=30)  # default: 30 days
+        serializer.save(recruiter=u, company=u.company_name or u.username, **extra)
 
 
 class RecruiterJobDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -237,7 +357,7 @@ class ApplyView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request, job_id):
-        job = get_object_or_404(Job, pk=job_id, is_open=True)
+        job = get_object_or_404(Job.active(), pk=job_id)
         if Application.objects.filter(candidate=request.user, job=job).exists():
             return Response({"detail": "You have already applied to this job."}, status=400)
         upload = request.FILES.get("resume")
@@ -283,6 +403,56 @@ class MyApplicationsView(generics.ListAPIView):
         return {**super().get_serializer_context(), "request": self.request}
 
 
+@api_view(["DELETE"])
+@permission_classes([IsCandidate])
+def withdraw_application(request, app_id):
+    app = get_object_or_404(Application, pk=app_id, candidate=request.user)
+    if app.status == Application.SELECTED:
+        return Response({"detail": "You were selected for this job. Contact the recruiter instead of withdrawing."}, status=400)
+    app.delete()
+    return Response(status=204)
+
+
+# ---------- Resumes (private files) ----------
+@api_view(["GET"])
+@permission_classes([IsCandidate])
+def my_resumes(request):
+    items = request.user.resumes.order_by("-uploaded_at")
+    return Response(ResumeSerializer(items, many=True, context={"request": request}).data)
+
+
+@api_view(["DELETE"])
+@permission_classes([IsCandidate])
+def delete_resume(request, resume_id):
+    resume = get_object_or_404(Resume, pk=resume_id, user=request.user)
+    n = resume.application_set.count()
+    if n:
+        return Response({"detail": f"This resume is used by {n} application(s). Withdraw them first, then delete it."}, status=400)
+    resume.file.delete(save=False)
+    resume.delete()
+    return Response(status=204)
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def resume_file(request, resume_id):
+    """Resume files are NOT public. Only the owner, a recruiter who received it, or an admin can open one."""
+    resume = get_object_or_404(Resume, pk=resume_id)
+    u = request.user
+    allowed = (
+        resume.user_id == u.id
+        or u.role == User.ADMIN
+        or (u.role == User.RECRUITER and Application.objects.filter(resume=resume, job__recruiter=u).exists())
+    )
+    if not allowed or not resume.file:
+        raise Http404()
+    try:
+        handle = resume.file.open("rb")
+    except FileNotFoundError:
+        raise Http404()
+    return FileResponse(handle, as_attachment=False, filename=os.path.basename(resume.file.name))
+
+
 # ---------- Admin ----------
 @api_view(["GET"])
 @permission_classes([IsAdminRole])
@@ -294,6 +464,7 @@ def admin_stats(request):
             "jobs": Job.objects.count(),
             "applications": Application.objects.count(),
             "selected": Application.objects.filter(status=Application.SELECTED).count(),
+            "pending_recruiters": User.objects.filter(role=User.RECRUITER, is_approved=False).count(),
         }
     )
 
@@ -310,6 +481,8 @@ class AdminUserListView(generics.ListAPIView):
                 "email": u.email,
                 "role": u.role,
                 "is_active": u.is_active,
+                "is_approved": u.is_approved,
+                "company_name": u.company_name,
                 "date_joined": u.date_joined,
             }
             for u in self.get_queryset()
@@ -326,6 +499,41 @@ def toggle_user(request, user_id):
     u.is_active = not u.is_active
     u.save(update_fields=["is_active"])
     return Response({"id": u.id, "is_active": u.is_active})
+
+
+@api_view(["POST"])
+@permission_classes([IsAdminRole])
+def approve_recruiter(request, user_id):
+    """Body {"approved": true|false}. Un-approving hides the recruiter's jobs from candidates."""
+    u = get_object_or_404(User, pk=user_id, role=User.RECRUITER)
+    u.is_approved = str(request.data.get("approved", True)).lower() in ("1", "true", "yes")
+    u.save(update_fields=["is_approved"])
+    notifications.recruiter_decision(u)
+    return Response({"id": u.id, "is_approved": u.is_approved})
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminRole])
+def admin_jobs(request):
+    jobs = Job.objects.select_related("recruiter").order_by("-created_at")
+    return Response(
+        [
+            {
+                "id": j.id, "title": j.title, "company": j.company, "location": j.location,
+                "recruiter": j.recruiter.username, "applicants": j.applications.count(),
+                "is_open": j.is_open, "is_expired": j.is_expired, "expires_at": j.expires_at,
+                "created_at": j.created_at,
+            }
+            for j in jobs
+        ]
+    )
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAdminRole])
+def admin_delete_job(request, job_id):
+    get_object_or_404(Job, pk=job_id).delete()
+    return Response(status=204)
 
 
 # ---------- Recommendations ----------
@@ -358,7 +566,7 @@ def recommendations(request):
     if not resume:
         return Response({"has_resume": False})
     refresh_skills(resume)
-    jobs = list(Job.objects.filter(is_open=True))
+    jobs = list(Job.active())
     data = build_recommendations(resume, jobs)
     data.update(
         has_resume=True,
@@ -366,15 +574,3 @@ def recommendations(request):
         jobs_count=len(jobs),
     )
     return Response(data)
-
-
-# ---------- Saved jobs ----------
-@api_view(["POST", "DELETE"])
-@permission_classes([IsCandidate])
-def save_job(request, job_id):
-    job = get_object_or_404(Job, pk=job_id)
-    if request.method == "POST":
-        SavedJob.objects.get_or_create(user=request.user, job=job)
-    else:
-        SavedJob.objects.filter(user=request.user, job=job).delete()
-    return Response({"id": job.id, "saved": request.method == "POST"})

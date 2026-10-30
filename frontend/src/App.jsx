@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
-import { currentUser, logout } from "./api";
+import { currentUser, logout, refreshUser } from "./api";
 import { ToastProvider } from "./ui.jsx";
 import { useT } from "./i18n.jsx";
+import JobDetail from "./pages/JobDetail.jsx";
 import HowItWorks from "./pages/HowItWorks.jsx";
+import ForgotPassword from "./pages/ForgotPassword.jsx";
+import ResetPassword from "./pages/ResetPassword.jsx";
+import Profile from "./pages/Profile.jsx";
 import Login from "./pages/Login.jsx";
 import Register from "./pages/Register.jsx";
 import Jobs from "./pages/Jobs.jsx";
@@ -29,7 +33,9 @@ function Home() {
 export default function App() {
   const user = currentUser();
   const navigate = useNavigate();
-  const { t, lang, setLang } = useT();
+  const { t } = useT();
+  useEffect(() => { if (currentUser()) refreshUser().then(() => setVersion((v) => v + 1)).catch(() => {}); }, []);
+  const [, setVersion] = useState(0);
   const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "");
   useEffect(() => {
     if (theme) document.documentElement.dataset.theme = theme;
@@ -49,12 +55,13 @@ export default function App() {
             {user?.role === "admin" && <NavLink to="/admin">{t("admin")}</NavLink>}
           </div>
           <div className="nav-right">
-            <button className="lang" title="Language / भाषा" onClick={() => setLang(lang === "en" ? "ne" : "en")}>{lang === "en" ? "नेपाली" : "EN"}</button>
             <button className="icon-btn" title="Toggle dark mode" onClick={() => setTheme(dark ? "light" : "dark")}>{dark ? "☀" : "☾"}</button>
             {user ? (
               <>
-                <div className="avatar">{user.username[0].toUpperCase()}</div>
-                <div className="who"><b>{user.username}</b><small>{user.role}</small></div>
+                <NavLink to="/profile" className="me" title={t("profile")}>
+                  <div className="avatar">{user.username[0].toUpperCase()}</div>
+                  <div className="who"><b>{user.username}</b><small>{user.role}</small></div>
+                </NavLink>
                 <button onClick={() => { logout(); navigate("/login"); window.location.reload(); }}>{t("logout")}</button>
               </>
             ) : (
@@ -72,11 +79,15 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/jobs" element={<Protected roles={["candidate"]}><Jobs /></Protected>} />
+          <Route path="/jobs/:id" element={<Protected roles={["candidate"]}><JobDetail /></Protected>} />
           <Route path="/my-applications" element={<Protected roles={["candidate"]}><MyApplications /></Protected>} />
           <Route path="/recommendations" element={<Protected roles={["candidate"]}><Recommendations /></Protected>} />
           <Route path="/recruiter" element={<Protected roles={["recruiter"]}><RecruiterDashboard /></Protected>} />
           <Route path="/recruiter/jobs/:id" element={<Protected roles={["recruiter"]}><Candidates /></Protected>} />
           <Route path="/admin" element={<Protected roles={["admin"]}><AdminDashboard /></Protected>} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/profile" element={<Protected roles={["candidate", "recruiter", "admin"]}><Profile /></Protected>} />
           <Route path="/how-it-works" element={<HowItWorks />} />
           <Route path="*" element={<Home />} />
         </Routes>

@@ -81,18 +81,39 @@ matched vs missing skills. "Select highest match" marks the top application as `
 
 ## Update v2: what is new
 - **Email notifications** (`core/notifications.py`): candidate when selected/rejected or messaged by a recruiter;
-  recruiter when someone matches 80%+; candidate alert for new jobs matching 70%+ (can be turned off on the Jobs page).
+  recruiter when someone matches 80%+.
   With no setup, emails are **printed in the backend terminal**. For real emails paste
   `docs/EMAIL_AND_DEPLOY_SNIPPET.py` at the bottom of `backend/config/settings.py` and fill in `EMAIL_HOST_USER`
   and `EMAIL_HOST_PASSWORD` (Gmail app password).
 - **Better scanner**: ~50 skills incl. Laravel, WordPress, Figma, digital marketing, accounting; implied skills;
   typo/plural matching for recruiter input; old resumes are re-scanned automatically.
 - **Resume check**: score out of 100 with a fix list on the Career plan page.
-- **Saved jobs**, **job type** (full-time/part-time/internship/contract), **salary range** and filters.
+- **Job type** (full-time/part-time/internship/contract), **salary range** and filters.
 - **Recruiter messages** to candidates (shown in My applications and emailed).
-- **Nepali language** switch (नेपाली button in the top bar) and a **How matching works** page.
+- A **How matching works** page.
 - `docs/DEPLOYMENT.md` (going online) and `docs/MATCHING.md` (explanation for your report).
 - **Database change:** run `py manage.py migrate` once after copying the files.
+
+## Update v3: job details, expiry, fresher
+- Clicking a job opens a **details page**: description, requirements, qualification, experience, posted date
+  ("2 days ago"), apply-before date with days left, salary, and how your resume matches.
+- Jobs have an **expiry date** (default 30 days, set by the recruiter). Expired jobs disappear for candidates
+  automatically (no scheduler needed) and stay in the recruiter's list marked "Expired"; edit the job to extend it.
+- Recruiters can choose **Fresher** (no experience needed) as the experience level.
+- **Database change:** run `py manage.py migrate` once.
+
+## Update v4: accounts, privacy and control
+- **Forgot password:** emailed single-use reset link (valid 3 days). Without Gmail settings the link is printed in the backend terminal.
+- **Registration rules** (checked in the browser and again on the server, with live "already taken" checks):
+  username 4-20 chars (letters, numbers, `_` `.`), valid email, password 8-64 chars with upper + lower case, number,
+  symbol, no spaces, not containing the username/email. Rules live in `backend/core/validators.py` and `frontend/src/validate.js`.
+- **Email verification is intentionally not included.**
+- **Recruiters need admin approval** before posting; admins can also remove fake jobs. Existing recruiters stay approved.
+- **Private resumes:** files are no longer reachable by a public `/media/` link; only the owner, a recruiter who received that application, or an admin can open them.
+- Candidates can **withdraw an application, delete a resume, edit their profile** and change password.
+- Recruiters get **one summary email** per upload for strong matches (not one per job).
+- Removed: saved jobs, job alerts, Nepali language, and the city chips (location is a typed search; no match shows "No results found").
+- **Database change:** run `py manage.py migrate` once.
 
 ## Career plan (recommendations)
 Candidates open **Career plan** to upload/scan a resume and see: skills found, the skills to learn in

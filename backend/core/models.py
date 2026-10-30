@@ -1,5 +1,16 @@
+import datetime
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.db.models import Q
+from django.utils import timezone
+
+NEPAL_TZ = datetime.timezone(datetime.timedelta(hours=5, minutes=45))  # Nepal has no daylight saving
+
+
+def nepal_today():
+    """Today's date in Nepal, so a job expires at midnight Nepal time."""
+    return timezone.now().astimezone(NEPAL_TZ).date()
 
 
 class User(AbstractUser):
@@ -14,7 +25,7 @@ class User(AbstractUser):
 
     role = models.CharField(max_length=12, choices=ROLE_CHOICES, default=CANDIDATE)
     company_name = models.CharField(max_length=150, blank=True)  # recruiters only
-    email_alerts = models.BooleanField(default=True)  # candidates: new-job match emails
+    is_approved = models.BooleanField(default=True)  # recruiters start unapproved until an admin approves
 
 
 class Job(models.Model):
@@ -37,11 +48,24 @@ class Job(models.Model):
     job_type = models.CharField(max_length=12, choices=JOB_TYPES, default=FULL_TIME)
     salary_min = models.PositiveIntegerField(null=True, blank=True)  # NPR per month
     salary_max = models.PositiveIntegerField(null=True, blank=True)
+    expires_at = models.DateField(null=True, blank=True)  # last day to apply; empty = no deadline
     is_open = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.title} @ {self.company}"
+
+    @property
+    def is_expired(self):
+        return bool(self.expires_at and self.expires_at < nepal_today())
+
+    @classmethod
+    def active(cls):
+        """Open jobs whose deadline has not passed. Expired jobs vanish for candidates automatically."""
+        return (
+            cls.objects.filter(is_open=True, recruiter__is_approved=True, recruiter__is_active=True)
+            .filter(Q(expires_at__isnull=True) | Q(expires_at__gte=nepal_today()))
+        )
 
 
 class Resume(models.Model):
@@ -85,13 +109,3 @@ class Application(models.Model):
     class Meta:
         unique_together = ("candidate", "job")
         ordering = ["-match_percentage"]
-
-
-class SavedJob(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="saved_jobs")
-    job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="saved_by")
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        unique_together = ("user", "job")
-        ordering = ["-created_at"]

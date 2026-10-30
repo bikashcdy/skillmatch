@@ -1,6 +1,8 @@
 from django.core.management.base import BaseCommand
 
-from core.models import Job, User
+import datetime
+
+from core.models import Job, User, nepal_today
 
 
 class Command(BaseCommand):
@@ -27,6 +29,7 @@ class Command(BaseCommand):
         for (title, skills, exp, edu), city in zip(jobs, cities):
             Job.objects.update_or_create(recruiter=rec, title=title, defaults=dict(
                 company="TechNepal", description=f"We are hiring a {title}.", location=city,
-                required_skills=skills, min_experience_years=exp, required_education=edu))
+                required_skills=skills, min_experience_years=exp, required_education=edu,
+                expires_at=nepal_today() + datetime.timedelta(days=30)))
         self.stdout.write(self.style.SUCCESS(
             "Demo ready. Logins: admin/admin12345, recruiter/demo12345, candidate/demo12345"))

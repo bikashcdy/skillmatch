@@ -41,7 +41,7 @@ export default function HowItWorks() {
         <ul>
           <li>Applying to one job can also apply you to up to 5 related jobs where you score 50% or more (optional).</li>
           <li>Recruiters see applicants ranked by match, with matched and missing skills and the full resume.</li>
-          <li>A recruiter gets an email when someone matches 80% or more. A candidate gets an email when they are selected or rejected, when the recruiter sends a message, and (if alerts are on) when a new job matches 70% or more.</li>
+          <li>A recruiter gets one email when a candidate matches 80% or more. A candidate gets an email when they are selected or rejected, and when the recruiter sends a message. Replies to those emails go straight to the recruiter.</li>
         </ul>
       </section>
 

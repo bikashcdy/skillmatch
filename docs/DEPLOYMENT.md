@@ -34,7 +34,7 @@ Gmail emails may not send on PythonAnywhere free; the app keeps working without 
 4. **Web** tab: *Add a new web app* -> *Manual configuration* -> choose the same Python version.
    - Source code: `/home/yourname/jobmitra/backend`
    - Virtualenv: `/home/yourname/.virtualenvs/jobmitra`
-   - Static files: URL `/media/` -> directory `/home/yourname/jobmitra/backend/media`
+   - (Do NOT map `/media/`: resumes are private and served through the API.)
 5. Open the **WSGI configuration file** (link on the Web tab). Replace its contents with:
    ```python
    import os, sys

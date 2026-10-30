@@ -31,7 +31,7 @@ def apply_to_job(candidate, job, resume, auto_apply_related=False):
 
     if auto_apply_related:
         others = (
-            Job.objects.filter(is_open=True)
+            Job.active()
             .exclude(pk=job.pk)
             .exclude(applications__candidate=candidate)
         )
@@ -51,8 +51,8 @@ def apply_to_job(candidate, job, resume, auto_apply_related=False):
                     **result
                 )
             )
-    for app_ in created:
-        transaction.on_commit(lambda a=app_: notifications.strong_match(a))
+    if created:
+        transaction.on_commit(lambda apps=list(created): notifications.strong_matches(apps))
     return created
 
 
