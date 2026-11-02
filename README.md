@@ -107,6 +107,8 @@ matched vs missing skills. "Select highest match" marks the top application as `
 - **Registration rules** (checked in the browser and again on the server, with live "already taken" checks):
   username 4-20 chars (letters, numbers, `_` `.`), valid email, password 8-64 chars with upper + lower case, number,
   symbol, no spaces, not containing the username/email. Rules live in `backend/core/validators.py` and `frontend/src/validate.js`.
+- **Job post rules:** title 3-80 letters (no numbers), description 30-3000 characters with real words, location letters only. Checked live in the form and on the server.
+- **Deactivated or unapproved recruiters:** their jobs disappear for candidates immediately and come back if the admin reactivates them.
 - **Email verification is intentionally not included.**
 - **Recruiters need admin approval** before posting; admins can also remove fake jobs. Existing recruiters stay approved.
 - **Private resumes:** files are no longer reachable by a public `/media/` link; only the owner, a recruiter who received that application, or an admin can open them.

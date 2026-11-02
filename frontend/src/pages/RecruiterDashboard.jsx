@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import api, { currentUser, errorText } from "../api";
 import { Empty, Modal, Skeleton, TagInput, ago, expText, expiryText, formatDate, salaryText, skillLabel, useToast } from "../ui.jsx";
 import { useT } from "../i18n.jsx";
+import { jobDescriptionErrors, jobLocationErrors, jobTitleErrors } from "../validate";
 
 const EXPERIENCE = [0, 0.5, 1, 2, 3, 4, 5, 7, 10];
 const plusDays = (n) => { const d = new Date(Date.now() + n * 86400000); return d.toISOString().slice(0, 10); };
@@ -16,6 +17,8 @@ export default function RecruiterDashboard() {
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
   const [cities, setCities] = useState([]);
+  const [errs, setErrs] = useState({});
+  const FieldErr = ({ list }) => (list && list.length ? <div className="field-error">{list.map((m) => <div key={m}>• {m}</div>)}</div> : null);
   useEffect(() => { api.get("/jobs/meta/").then((x) => { setCities(x.data.cities); setCatalog(x.data.catalog || []); }); }, []);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
@@ -25,6 +28,9 @@ export default function RecruiterDashboard() {
 
   async function save(e) {
     e.preventDefault();
+    const found = { title: jobTitleErrors(form.title), description: jobDescriptionErrors(form.description), location: jobLocationErrors(form.location || "") };
+    setErrs(found);
+    if (Object.values(found).some((x) => x.length)) return toast("Please fix the highlighted fields.", "err");
     if (!form.skills.length) return toast("Add at least one required skill.", "err");
     setBusy(true);
     const body = { ...form, location: (form.location || "").trim(), required_skills: form.skills, min_experience_years: Number(form.min_experience_years) || 0,
@@ -51,7 +57,7 @@ export default function RecruiterDashboard() {
     <div className="stack">
       <div className="row between">
         <div><h1>{t("myJobs")}</h1><p className="muted">{jobs ? `${jobs.length} posted · ${total} applicants` : ""}</p></div>
-        <button className="primary" onClick={() => setForm(makeEmpty())} disabled={!approved} title={approved ? "" : "Waiting for admin approval"}>＋ {t("postJob")}</button>
+        <button className="primary" onClick={() => { setErrs({}); setForm(makeEmpty()); }} disabled={!approved} title={approved ? "" : "Waiting for admin approval"}>＋ {t("postJob")}</button>
       </div>
       {!approved && (
         <div className="error" style={{ padding: 14 }}>
@@ -71,7 +77,7 @@ export default function RecruiterDashboard() {
             </div>
             <div className="row">
               <Link className="btn primary" to={`/recruiter/jobs/${j.id}`}>{t("rankedCands")}</Link>
-              <button onClick={() => setForm({ ...j, skills: j.required_skills })}>{t("edit")}</button>
+              <button onClick={() => { setErrs({}); setForm({ ...j, skills: j.required_skills }); }}>{t("edit")}</button>
               <button onClick={() => toggle(j)}>{j.is_open ? t("close") : t("reopen")}</button>
               <button className="danger" onClick={() => remove(j)}>{t("del")}</button>
             </div>
@@ -81,8 +87,8 @@ export default function RecruiterDashboard() {
       {form && (
         <Modal title={form.id ? t("editJob") : t("postJob")} onClose={() => setForm(null)}>
           <form className="stack" onSubmit={save}>
-            <div><label className="f">{t("jobTitle")}</label><input value={form.title} onChange={set("title")} required /></div>
-            <div><label className="f">{t("description")}</label><textarea value={form.description} onChange={set("description")} required /></div>
+            <div><label className="f">{t("jobTitle")}</label><input value={form.title} maxLength={80} onChange={(e) => { set("title")(e); setErrs({ ...errs, title: jobTitleErrors(e.target.value) }); }} /><FieldErr list={errs.title} /></div>
+            <div><label className="f">{t("description")}</label><textarea value={form.description} maxLength={3000} onChange={(e) => { set("description")(e); setErrs({ ...errs, description: jobDescriptionErrors(e.target.value) }); }} /><FieldErr list={errs.description} /></div>
             <div><label className="f">{t("location")}</label>
               <select value={cities.includes(form.location) ? form.location : form.location ? "__other" : ""}
                 onChange={(e) => setForm({ ...form, location: e.target.value === "__other" ? " " : e.target.value })}>
@@ -92,8 +98,8 @@ export default function RecruiterDashboard() {
               </select>
               {!cities.includes(form.location) && form.location !== "" && (
                 <input style={{ marginTop: 8 }} placeholder="Type the city or town" value={form.location.trim() === "" ? "" : form.location}
-                  onChange={(e) => setForm({ ...form, location: e.target.value || " " })} />
-              )}</div>
+                  onChange={(e) => { setForm({ ...form, location: e.target.value || " " }); setErrs({ ...errs, location: jobLocationErrors(e.target.value) }); }} />
+              )}<FieldErr list={errs.location} /></div>
             <div><label className="f">{t("reqSkills")}</label>
               <TagInput suggestions={catalog.map(skillLabel)} value={form.skills} onChange={(skills) => setForm({ ...form, skills })} placeholder="python, django, react…" /></div>
             <div className="grid2">

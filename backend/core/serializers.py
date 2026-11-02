@@ -90,6 +90,24 @@ class JobSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["company", "created_at"]
 
+    def validate_title(self, value):
+        errors = V.job_title_errors(value)
+        if errors:
+            raise serializers.ValidationError(errors)
+        return " ".join(value.split())
+
+    def validate_description(self, value):
+        errors = V.job_description_errors(value)
+        if errors:
+            raise serializers.ValidationError(errors)
+        return value.strip()
+
+    def validate_location(self, value):
+        errors = V.job_location_errors(value)
+        if errors:
+            raise serializers.ValidationError(errors)
+        return " ".join(value.split())
+
     def validate_required_skills(self, value):
         cleaned = sorted({normalize_skill(s) for s in value if s and s.strip()})
         if not cleaned:

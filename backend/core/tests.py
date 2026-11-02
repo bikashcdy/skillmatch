@@ -41,18 +41,18 @@ class FullFlowTest(APITestCase):
         # --- recruiter posts 3 jobs
         self.register(username="recruiter1", email="r@x.com", role="recruiter", company_name="Acme")
         self.login("recruiter1")
-        self.assertEqual(self.client.post("/api/recruiter/jobs/", {"title": "x", "description": "d", "required_skills": ["python"]},
+        self.assertEqual(self.client.post("/api/recruiter/jobs/", {"description": "Build and maintain the company web applications with the team", "title": "Web Developer", "required_skills": ["python"]},
                                           format="json").status_code, 403)       # not approved yet
         User.objects.filter(username="recruiter1").update(is_approved=True)
         self.login("recruiter1")
-        backend = self.post_job(title="Backend Dev", description="d", required_skills=["Python", "Django", "SQL"],
+        backend = self.post_job(title="Backend Dev", description="Build and maintain the company web applications with the team", required_skills=["Python", "Django", "SQL"],
                                 min_experience_years=1, required_education="bachelor")
-        frontend = self.post_job(title="Frontend Dev", description="d", required_skills=["ReactJS", "JavaScript", "CSS"],
+        frontend = self.post_job(title="Frontend Dev", description="Build and maintain the company web applications with the team", required_skills=["ReactJS", "JavaScript", "CSS"],
                                  min_experience_years=1, required_education="bachelor")
-        ml = self.post_job(title="ML Engineer", description="d", required_skills=["machine learning", "python", "pandas", "docker", "aws"],
+        ml = self.post_job(title="ML Engineer", description="Build and maintain the company web applications with the team", required_skills=["machine learning", "python", "pandas", "docker", "aws"],
                            min_experience_years=3, required_education="master")
 
-        qa = self.post_job(title="QA Automation", description="d", required_skills=["python", "testing", "git"],
+        qa = self.post_job(title="QA Automation", description="Build and maintain the company web applications with the team", required_skills=["python", "testing", "git"],
                            min_experience_years=1, required_education="bachelor")
 
         # --- two candidates
@@ -190,7 +190,7 @@ class SearchAndStatusTest(APITestCase):
         for n in ("c1", "c2"):
             User.objects.create_user(n, email=f"{n}@x.com", password="pass12345", role=User.CANDIDATE)
         self.login("rec")
-        base = {"description": "d", "min_experience_years": 0, "required_education": "none"}
+        base = {"description": "Build and maintain the company web applications with the team", "min_experience_years": 0, "required_education": "none"}
         self.j1 = self.client.post("/api/recruiter/jobs/", {**base, "title": "Django Dev",
             "location": "Kathmandu", "required_skills": ["Python", "Django"]}, format="json").data["id"]
         self.client.post("/api/recruiter/jobs/", {**base, "title": "Designer",
@@ -274,7 +274,7 @@ class V2FeaturesTest(APITestCase):
         self.cv = lambda: make_docx("Python Django developer. Skills: python django git sql. BCA 2021-2025. " * 2)
 
     def post_job(self, **kw):
-        base = {"title": "Backend", "description": "d", "location": "Pokhara", "min_experience_years": 0,
+        base = {"title": "Backend", "description": "Build and maintain the company web applications with the team", "location": "Pokhara", "min_experience_years": 0,
                 "required_education": "none", "required_skills": ["Python", "Django"]}
         r = self.client.post("/api/recruiter/jobs/", {**base, **kw}, format="json")
         self.assertEqual(r.status_code, 201, r.content)
@@ -311,7 +311,7 @@ class V2FeaturesTest(APITestCase):
         from django.core import mail
         self.login("rec")
         for i in range(3):
-            self.post_job(title=f"Job {i}")
+            self.post_job(title="Engineer " + chr(65 + i))
         self.login("cand")
         mail.outbox.clear()
         with self.captureOnCommitCallbacks(execute=True):
@@ -367,7 +367,7 @@ class ExpiryAndDetailTest(APITestCase):
         self.login("rec")
 
     def post(self, **kw):
-        base = {"title": "Dev", "description": "Build things", "location": "Pokhara", "required_skills": ["python"],
+        base = {"title": "Dev", "description": "Build and maintain the company web applications with the team", "location": "Pokhara", "required_skills": ["python"],
                 "min_experience_years": 0, "required_education": "bachelor"}
         return self.client.post("/api/recruiter/jobs/", {**base, **kw}, format="json")
 
@@ -568,7 +568,7 @@ class PrivacyAndAdminTest(APITestCase):
         self.login("candidate1")
         self.assertEqual(self.client.get("/api/jobs/").data, [])                     # unapproved recruiter's jobs are hidden
         self.login("recruiter1")
-        self.assertEqual(self.client.post("/api/recruiter/jobs/", {"title": "x", "description": "d", "required_skills": ["python"]},
+        self.assertEqual(self.client.post("/api/recruiter/jobs/", {"description": "Build and maintain the company web applications with the team", "title": "Web Developer", "required_skills": ["python"]},
                                           format="json").status_code, 403)
         self.login("candidate1")
         self.assertEqual(self.client.post(f"/api/admin/users/{self.rec.id}/approve/").status_code, 403)
@@ -584,3 +584,50 @@ class PrivacyAndAdminTest(APITestCase):
         self.assertEqual(self.client.get("/api/admin/jobs/").data, [])
         self.login("candidate1")
         self.assertEqual(self.client.get("/api/admin/jobs/").status_code, 403)
+
+
+class JobPostValidationTest(APITestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        U = get_user_model()
+        self.rec = U.objects.create_user("hirer_a", "hirer_a@example.com", "Pass@12345", role="recruiter",
+                                         company_name="Acme", is_approved=True)
+        self.client.force_authenticate(self.rec)
+        self.ok = {"title": "Python Developer", "description": "Build and maintain our web applications with the team",
+                   "location": "Pokhara", "required_skills": ["python"], "min_experience_years": 0}
+
+    def post(self, **over):
+        return self.client.post("/api/recruiter/jobs/", {**self.ok, **over}, format="json")
+
+    def test_valid_job_is_accepted(self):
+        self.assertEqual(self.post().status_code, 201)
+
+    def test_bad_titles_rejected(self):
+        for t in ["12345", "Dev 99", "ab", "!!!", "   ", "x" * 81]:
+            r = self.post(title=t)
+            self.assertEqual(r.status_code, 400, t)
+            self.assertIn("title", r.data)
+
+    def test_bad_descriptions_rejected(self):
+        for d in ["short", "1234567890 1234567890 1234567890 1234567890", "aa aa aa aa aa aa aa aa aa aa aa aa", "x" * 3001]:
+            r = self.post(description=d)
+            self.assertEqual(r.status_code, 400, d)
+            self.assertIn("description", r.data)
+
+    def test_bad_locations_rejected(self):
+        for loc in ["12345", "Pokhara 44", "@@"]:
+            self.assertEqual(self.post(location=loc).status_code, 400, loc)
+
+    def test_deactivated_recruiter_jobs_disappear(self):
+        job_id = self.post().data["id"]
+        cand = __import__("django.contrib.auth", fromlist=["x"]).get_user_model().objects.create_user(
+            "cand_a", "cand_a@example.com", "Pass@12345", role="candidate")
+        self.client.force_authenticate(cand)
+        self.assertEqual(self.client.get("/api/jobs/").data and len(self.client.get("/api/jobs/").data), 1)
+        self.rec.is_active = False
+        self.rec.save()
+        self.assertEqual(len(self.client.get("/api/jobs/").data), 0)
+        self.assertEqual(self.client.get(f"/api/jobs/{job_id}/").status_code, 404)
+        self.rec.is_active = True
+        self.rec.save()
+        self.assertEqual(len(self.client.get("/api/jobs/").data), 1)

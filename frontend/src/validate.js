@@ -35,3 +35,35 @@ export const passwordRules = (v = "", username = "", email = "") => {
 };
 export const passwordOk = (v, u, e) => passwordRules(v, u, e).every((r) => r.ok);
 export const companyErrors = (v = "") => (v.trim().length >= 2 && v.trim().length <= 100 ? [] : ["Company name must be 2-100 characters."]);
+
+export const jobTitleErrors = (v = "") => {
+  const t = v.trim().replace(/\s+/g, " ");
+  if (!t) return ["Job title is required."];
+  const e = [];
+  if (t.length < 3 || t.length > 80) e.push("Job title must be 3-80 characters.");
+  if (/\d/.test(t)) e.push("Job title cannot contain numbers.");
+  if (/[^A-Za-z\s&.,/+#()-]/.test(t.replace(/\d/g, ""))) e.push("Job title can only use letters and & . , / + # ( ) -");
+  if ((t.match(/[A-Za-z]/g) || []).length < 3) e.push("Job title must contain real words, for example Python Developer.");
+  return e;
+};
+
+export const jobDescriptionErrors = (v = "") => {
+  const t = v.trim();
+  if (!t) return ["Description is required."];
+  const e = [];
+  if (t.length < 30) e.push("Description must be at least 30 characters.");
+  if (t.length > 3000) e.push("Description must be at most 3000 characters.");
+  const words = t.match(/[A-Za-z]{2,}/g) || [];
+  if (words.length < 5) e.push("Description needs at least 5 real words, not just numbers or symbols.");
+  else if (new Set(words.map((w) => w.toLowerCase())).size < 4) e.push("Description looks repeated. Describe the role, duties and requirements.");
+  return e;
+};
+
+export const jobLocationErrors = (v = "") => {
+  const t = v.trim().replace(/\s+/g, " ");
+  if (!t) return ["Location is required."];
+  const e = [];
+  if (t.length < 2 || t.length > 60) e.push("Location must be 2-60 characters.");
+  if (/[^A-Za-z\s.,-]/.test(t)) e.push("Location can only contain letters (no numbers or symbols).");
+  return e;
+};
