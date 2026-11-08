@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import api, { errorText } from "../api";
-import { Empty, MatchRing, Skeleton, skillLabel, useToast } from "../ui.jsx";
+import { Empty, MatchRing, Modal, Skeleton, skillLabel, useToast } from "../ui.jsx";
 import { useT } from "../i18n.jsx";
+import { OcrNotice, ResumeReview } from "../ui_resume.jsx";
 
 export default function Recommendations() {
   const { t } = useT();
@@ -10,6 +11,8 @@ export default function Recommendations() {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef();
+  const [review, setReview] = useState(null);   // scanned resume waiting for the candidate to confirm
+  const [sim, setSim] = useState({ picked: [], result: null, busy: false });
 
   const load = () => api.get("/recommendations/").then((r) => setData(r.data))
     .catch((e) => { setData({ has_resume: false }); toast(errorText(e), "err"); });
@@ -20,8 +23,11 @@ export default function Recommendations() {
     const fd = new FormData();
     fd.append("resume", file);
     setBusy(true);
-    try { const { data: d } = await api.post("/resume/", fd); toast(`Resume scanned · resume score ${d.health.score}/100`); await load(); }
-    catch (e) { toast(errorText(e, "Could not scan this resume."), "err"); }
+    try { const { data: d } = await api.post("/resume/", fd); setReview({ resume: d, manual: false }); }
+    catch (e) {
+      if (e.response?.data?.manual_entry) setReview({ resume: null, manual: true });
+      toast(errorText(e, "Could not scan this resume."), "err");
+    }
     setBusy(false);
     if (fileRef.current) fileRef.current.value = "";
   }
@@ -34,19 +40,37 @@ export default function Recommendations() {
     </label>
   );
 
+  const reviewModal = review && (
+    <Modal title="Check your resume details" onClose={() => setReview(null)}>
+      <ResumeReview resume={review.resume} manual={review.manual} onCancel={() => setReview(null)}
+        onDone={async () => { setReview(null); await load(); }} />
+    </Modal>
+  );
+
+  async function simulate(picked) {
+    setSim({ picked, result: null, busy: !!picked.length });
+    if (!picked.length) return;
+    try { const { data: d } = await api.post("/recommendations/what-if/", { skills: picked }); setSim({ picked, result: d, busy: false }); }
+    catch (e) { toast(errorText(e), "err"); setSim({ picked, result: null, busy: false }); }
+  }
+  const togglePick = (skill) => simulate(sim.picked.includes(skill) ? sim.picked.filter((x) => x !== skill) : [...sim.picked, skill]);
+
   if (!data) return <Skeleton n={4} />;
   if (!data.has_resume) {
-    return (
+    return (<>
       <Empty icon="📄" title={t("scanFirst")}>
         Upload your resume (PDF, DOCX, TXT or a photo). We will show which skills to learn, where to learn them, and how much each one raises your match.
-        <div style={{ marginTop: 16 }}><Upload label={t("uploadScan")} /></div>
+        <div style={{ marginTop: 16 }}><Upload label={t("uploadScan")} /><OcrNotice /></div>
+        <p style={{ marginTop: 10 }}><button className="ghost" onClick={() => setReview({ resume: null, manual: true })}>or type your details instead</button></p>
       </Empty>
-    );
+      {reviewModal}
+    </>);
   }
 
   const r = data.resume;
   return (
     <div className="stack">
+      {reviewModal}
       <div className="row between">
         <div><h1>{t("planTitle")}</h1><p className="muted">{t("planSub", { n: data.jobs_count })}</p></div>
         <Upload label={t("uploadNewer")} />
@@ -54,7 +78,7 @@ export default function Recommendations() {
 
       <section className="card plan-hero">
         <div>
-          <small>RESUME SCAN · {r.filename}</small>
+          <small>RESUME · {r.filename || "typed details"}</small>
           <h2 style={{ margin: "4px 0 10px" }}>{r.experience_years} yr experience · {r.education_level} education</h2>
           <div>{data.skills_have.length ? data.skills_have.map((s) => <span className="chip ok" key={s}>✓ {s}</span>)
             : <span className="muted">No known skills detected yet.</span>}</div>
@@ -115,6 +139,43 @@ export default function Recommendations() {
         </article>
       ))}
 
+      {data.learning_path?.length > 0 && (<>
+        <h2>Your learning order</h2>
+        <div className="card">
+          <p className="muted" style={{ marginBottom: 10 }}>Follow this order: each skill builds on the ones before it.</p>
+          <ol className="ideas">
+            {data.learning_path.map((p) => (
+              <li key={p.skill}><b>{skillLabel(p.skill)}</b> · about {p.weeks} week{p.weeks > 1 ? "s" : ""}
+                {!p.is_gap && <span className="badge" style={{ marginLeft: 8 }}>prerequisite</span>}
+                {p.needed_for.length > 0 && <small> needed for {p.needed_for.map(skillLabel).join(", ")}</small>}</li>
+            ))}
+          </ol>
+        </div>
+      </>)}
+
+      {data.skill_gaps.length > 0 && (<>
+        <h2>What if I learn…?</h2>
+        <div className="card stack">
+          <p className="muted">Pick skills to see how your match scores would change. Your real profile is not changed.</p>
+          <div>{data.skill_gaps.map((g) => (
+            <button type="button" key={g.skill} className={`chip ${sim.picked.includes(g.skill) ? "ok" : ""}`} style={{ cursor: "pointer", border: "1px solid var(--line)" }}
+              onClick={() => togglePick(g.skill)}>{sim.picked.includes(g.skill) ? "✓ " : "+ "}{skillLabel(g.skill)}</button>
+          ))}</div>
+          {sim.busy && <p className="muted">Calculating…</p>}
+          {sim.result && (<>
+            <p>Average of your top jobs: <b>{sim.result.avg_before}%</b> → <b className="success-text">{sim.result.avg_after}%</b>
+              {sim.result.crossing.length > 0 && <> · reaches 75%+ for <b>{sim.result.crossing.join(", ")}</b></>}</p>
+            <div className="tablewrap"><table>
+              <thead><tr><th>Job</th><th>Now</th><th>After</th><th>Change</th></tr></thead>
+              <tbody>{sim.result.jobs.slice(0, 6).map((j) => (
+                <tr key={j.id}><td>{j.title}</td><td>{j.before}%</td><td>{j.after}%</td>
+                  <td className={j.change > 0 ? "success-text" : ""}>{j.change > 0 ? "+" : ""}{j.change}%</td></tr>
+              ))}</tbody>
+            </table></div>
+          </>)}
+        </div>
+      </>)}
+
       <h2>{t("closest")}</h2>
       <div className="jobs">
         {data.best_jobs.map((j) => (
@@ -124,8 +185,10 @@ export default function Recommendations() {
               <p className="muted">{j.company} · 📍 {j.location || "—"}</p>
               <div style={{ marginTop: 6 }}>
                 {j.matched_skills.map((s) => <span className="chip ok" key={s}>✓ {s}</span>)}
+                {(j.partial_skills || []).map((s) => <span className="chip part" key={s}>~ {s}</span>)}
                 {j.missing_skills.map((s) => <span className="chip miss" key={s}>✗ {s}</span>)}
               </div>
+              {j.knockout && <small className="urgent">Missing a must-have skill: score capped at 60%</small>}
             </div>
             <div className="row" style={{ flexWrap: "nowrap" }}>
               <div style={{ textAlign: "center" }}><MatchRing value={j.match} /><small>{t("now")}</small></div>

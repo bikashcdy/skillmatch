@@ -219,3 +219,11 @@ input.bad { border-color: var(--bad) !important; box-shadow: 0 0 0 3px var(--bad
 /* Edge adds its own reveal-password eye; we have our own button */
 input::-ms-reveal, input::-ms-clear { display: none; }
 input::-webkit-credentials-auto-fill-button { visibility: hidden; display: none !important; }
+
+/* v5: algorithm */
+.chip.part { background: var(--warn-soft); color: var(--warn); }
+.bar span.muted { color: var(--muted); font-size: 12.5px; }
+.weight-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+.weight-grid div { background: var(--surface-2); border-radius: 10px; padding: 10px; text-align: center; }
+.weight-grid b { display: block; font-size: 20px; }
+@media (max-width: 820px) { .weight-grid { grid-template-columns: repeat(2, 1fr); } }

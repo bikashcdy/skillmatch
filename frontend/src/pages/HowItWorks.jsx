@@ -13,11 +13,9 @@ export default function HowItWorks() {
       <section className="card stack">
         <h2>1. Reading the resume</h2>
         <ul>
-          <li><b>Text:</b> PDF, DOCX and TXT are read directly. Photos and scanned PDFs are read with OCR (text recognition).</li>
-          <li><b>Skills:</b> the text is checked against a dictionary of about 50 skills with aliases (<code>reactjs</code> and <code>react.js</code> both mean React). Matching uses whole words, so "java" is not found inside "javascript".</li>
-          <li><b>Implied skills:</b> some skills imply others. Django implies Python, React implies JavaScript, Laravel implies PHP.</li>
-          <li><b>Experience:</b> the largest "N years" phrase, for example "3 years" or "2+ yrs".</li>
-          <li><b>Education:</b> the highest level found: diploma/+2, bachelor (BCA, BSc), master, PhD.</li>
+          <li><b>Text:</b> PDF, DOCX and TXT are read directly. Photos and scanned PDFs are read with OCR (text recognition); the picture is cleaned first (straightened, enlarged, sharpened).</li>
+          <li><b>You confirm it.</b> After reading, you see the skills, years, education, projects and certifications that were found. Fix anything wrong, then confirm. Only a confirmed resume is used for matching. If the file cannot be read, you can type your details instead.</li>
+          <li><b>Skills:</b> found with a dictionary of aliases (<code>reactjs</code> = React). Longer names win (“machine learning” before “learning”), small typos are fixed with edit distance, and implied skills are added (Django implies Python).</li>
         </ul>
       </section>
 
@@ -26,22 +24,26 @@ export default function HowItWorks() {
         <div className="tablewrap"><table>
           <thead><tr><th>Part</th><th>Weight</th><th>How it is scored</th></tr></thead>
           <tbody>
-            <Row k="Skills" w="60%">matched required skills ÷ all required skills</Row>
-            <Row k="Experience" w="25%">your years ÷ the job's minimum years (maximum 100%)</Row>
-            <Row k="Education" w="15%">your level ÷ the level the job asks for (maximum 100%)</Row>
+            <Row k="Skills" w="40%">must-have skills count double, nice-to-have count once. Exact skill = 1, related skill (React for Vue) = 0.5, missing = 0</Row>
+            <Row k="Text fit" w="20%">TF-IDF + cosine similarity between your resume text and the job text. Rare words count more than common ones, and repeating a word does not help</Row>
+            <Row k="Experience" w="20%">your years ÷ the job's minimum years (maximum 100%)</Row>
+            <Row k="Education" w="10%">your level ÷ the level the job asks for (maximum 100%)</Row>
+            <Row k="Preferences" w="10%">your preferred city and job type. If you set none, this part is left out and the others share its weight</Row>
           </tbody>
         </table></div>
-        <p><b>Example.</b> A job needs Python, Django, SQL, Git (4 skills), 2 years, a bachelor degree. Your resume has Python, Django, Git, 1 year and a bachelor degree:</p>
-        <p className="formula">skills 3/4 = 75% · experience 1/2 = 50% · education 100%<br />
-          match = 0.60 × 75 + 0.25 × 50 + 0.15 × 100 = <b>72.5%</b></p>
+        <p><b>Must-have rule.</b> If a must-have skill is <i>completely</i> missing (no exact and no related skill), the score is capped at 60%. A related skill is not “missing”.</p>
+        <p className="formula">match = 100 × (0.40 × Skills + 0.20 × Text + 0.20 × Experience + 0.10 × Education + 0.10 × Preferences)<br />
+          Example: skills 0.75, text 0.60, experience 0.50, education 1, preferences 1 → <b>75.0%</b></p>
+        <p>The weights above are the defaults. An admin can tune them with a grid search on rated examples.</p>
       </section>
 
       <section className="card stack">
         <h2>3. What happens with the score</h2>
         <ul>
-          <li>Applying to one job can also apply you to up to 5 related jobs where you score 50% or more (optional).</li>
-          <li>Recruiters see applicants ranked by match, with matched and missing skills and the full resume.</li>
-          <li>A recruiter gets one email when a candidate matches 80% or more. A candidate gets an email when they are selected or rejected, and when the recruiter sends a message. Replies to those emails go straight to the recruiter.</li>
+          <li>You see <i>why</i> you got a score: every part, the matched / related / missing skills and the skill gap.</li>
+          <li>The Career plan shows the best order to learn skills (prerequisites first), and a “What if I learn…?” tool shows how your score would change.</li>
+          <li>Applying to one job can also apply you to up to 5 related jobs where you score 50% or more and no must-have skill is missing (optional).</li>
+          <li>Recruiters see applicants ranked by match with the same breakdown. A recruiter gets one email when a candidate matches 70% or more.</li>
         </ul>
       </section>
 

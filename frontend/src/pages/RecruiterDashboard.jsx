@@ -7,7 +7,7 @@ import { jobDescriptionErrors, jobLocationErrors, jobTitleErrors } from "../vali
 
 const EXPERIENCE = [0, 0.5, 1, 2, 3, 4, 5, 7, 10];
 const plusDays = (n) => { const d = new Date(Date.now() + n * 86400000); return d.toISOString().slice(0, 10); };
-const makeEmpty = () => ({ title: "", description: "", location: "", skills: [], min_experience_years: 0, required_education: "", job_type: "full_time", salary_min: "", salary_max: "", expires_at: plusDays(30) });
+const makeEmpty = () => ({ title: "", description: "", location: "", skills: [], nice: [], min_experience_years: 0, required_education: "", job_type: "full_time", salary_min: "", salary_max: "", expires_at: plusDays(30) });
 
 export default function RecruiterDashboard() {
   const { t } = useT();
@@ -33,7 +33,7 @@ export default function RecruiterDashboard() {
     if (Object.values(found).some((x) => x.length)) return toast("Please fix the highlighted fields.", "err");
     if (!form.skills.length) return toast("Add at least one required skill.", "err");
     setBusy(true);
-    const body = { ...form, location: (form.location || "").trim(), required_skills: form.skills, min_experience_years: Number(form.min_experience_years) || 0,
+    const body = { ...form, location: (form.location || "").trim(), required_skills: form.skills, nice_to_have_skills: form.nice || [], min_experience_years: Number(form.min_experience_years) || 0,
       salary_min: form.salary_min === "" || form.salary_min == null ? null : Number(form.salary_min),
       salary_max: form.salary_max === "" || form.salary_max == null ? null : Number(form.salary_max),
       expires_at: form.expires_at || null };
@@ -73,11 +73,11 @@ export default function RecruiterDashboard() {
               <h3>{j.title} {!j.is_open && <span className="badge">{t("close")}</span>}{j.is_expired && <span className="badge rejected">{t("expiredBadge")}</span>}</h3>
               <p className="muted">📍 {j.location || "—"} · 💰 {salaryText(j, t)} · {t(j.job_type)} · ⏱ {expText(j.min_experience_years, t)} · {t("posted")} {ago(j.created_at, t)} · <b>{j.applicants}</b> applicant(s)</p>
               <p className={j.is_expired ? "urgent" : "muted"} style={{ fontSize: 13.5 }}>⏳ {j.expires_at ? `${formatDate(j.expires_at)} · ${expiryText(j, t)}` : t("noDeadline")}{j.is_expired && ` — ${t("extendHint")}`}</p>
-              <div style={{ marginTop: 8 }}>{j.required_skills.map((s) => <span className="chip" key={s}>{skillLabel(s)}</span>)}</div>
+              <div style={{ marginTop: 8 }}>{j.required_skills.map((s) => <span className="chip" key={s}>{skillLabel(s)}</span>)}{(j.nice_to_have_skills || []).map((s) => <span className="chip part" key={s} title="Nice to have">{skillLabel(s)}</span>)}</div>
             </div>
             <div className="row">
               <Link className="btn primary" to={`/recruiter/jobs/${j.id}`}>{t("rankedCands")}</Link>
-              <button onClick={() => { setErrs({}); setForm({ ...j, skills: j.required_skills }); }}>{t("edit")}</button>
+              <button onClick={() => { setErrs({}); setForm({ ...j, skills: j.required_skills, nice: j.nice_to_have_skills || [] }); }}>{t("edit")}</button>
               <button onClick={() => toggle(j)}>{j.is_open ? t("close") : t("reopen")}</button>
               <button className="danger" onClick={() => remove(j)}>{t("del")}</button>
             </div>
@@ -101,7 +101,11 @@ export default function RecruiterDashboard() {
                   onChange={(e) => { setForm({ ...form, location: e.target.value || " " }); setErrs({ ...errs, location: jobLocationErrors(e.target.value) }); }} />
               )}<FieldErr list={errs.location} /></div>
             <div><label className="f">{t("reqSkills")}</label>
-              <TagInput suggestions={catalog.map(skillLabel)} value={form.skills} onChange={(skills) => setForm({ ...form, skills })} placeholder="python, django, react…" /></div>
+              <TagInput suggestions={catalog.map(skillLabel)} value={form.skills} onChange={(skills) => setForm({ ...form, skills })} placeholder="python, django, react…" />
+              <small className="muted">Must-have: if a candidate has none of a related skill, their score is capped at 60%.</small></div>
+            <div><label className="f">Nice-to-have skills (optional)</label>
+              <TagInput suggestions={catalog.map(skillLabel)} value={form.nice || []} onChange={(nice) => setForm({ ...form, nice })} placeholder="docker, aws…" />
+              <small className="muted">These add to the score but never block a candidate.</small></div>
             <div className="grid2">
               <div><label className="f">{t("jobType")}</label>
                 <select value={form.job_type} onChange={set("job_type")}>
@@ -122,7 +126,7 @@ export default function RecruiterDashboard() {
                 </select></div>
               <div><label className="f">{t("education")}</label>
                 <select value={form.required_education} onChange={set("required_education")}>
-                  <option value="">{t("anyEdu")}</option><option value="diploma">Diploma / +2</option>
+                  <option value="">{t("anyEdu")}</option><option value="secondary">Secondary (SEE)</option><option value="diploma">Diploma / +2</option>
                   <option value="bachelor">Bachelor</option><option value="master">Master</option><option value="phd">PhD</option>
                 </select></div>
             </div>

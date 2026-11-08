@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import api, { currentUser, errorText, openResume, refreshUser } from "../api";
 import { Checklist, FieldError, PasswordInput } from "../ui_extra.jsx";
-import { Skeleton, skillLabel, ago, useToast } from "../ui.jsx";
+import { Modal, Skeleton, skillLabel, ago, useToast } from "../ui.jsx";
+import { ResumeReview } from "../ui_resume.jsx";
 import { useT } from "../i18n.jsx";
-import { companyErrors, emailErrors, passwordOk, passwordRules } from "../validate.js";
+import { companyErrors, emailErrors, jobLocationErrors, passwordOk, passwordRules } from "../validate.js";
 
 export default function Profile() {
   const { t } = useT();
@@ -13,9 +14,21 @@ export default function Profile() {
   const [errs, setErrs] = useState({});
   const [pw, setPw] = useState({ old_password: "", new_password: "", confirm: "" });
   const [resumes, setResumes] = useState(null);
+  const [prefs, setPrefs] = useState({ preferred_location: me.preferred_location || "", preferred_job_type: me.preferred_job_type || "" });
+  const [prefErr, setPrefErr] = useState([]);
+  const [review, setReview] = useState(null);
 
   const loadResumes = () => me.role === "candidate" && api.get("/resumes/").then((r) => setResumes(r.data)).catch(() => setResumes([]));
-  useEffect(() => { refreshUser().then((u) => setForm({ email: u.email, company_name: u.company_name })); loadResumes(); }, []);
+  useEffect(() => { refreshUser().then((u) => { setForm({ email: u.email, company_name: u.company_name }); setPrefs({ preferred_location: u.preferred_location || "", preferred_job_type: u.preferred_job_type || "" }); }); loadResumes(); }, []);
+
+  async function savePrefs(e) {
+    e.preventDefault();
+    const bad = prefs.preferred_location.trim() ? jobLocationErrors(prefs.preferred_location) : [];
+    setPrefErr(bad);
+    if (bad.length) return;
+    try { await api.patch("/auth/me/", prefs); await refreshUser(); toast("Job preferences saved"); }
+    catch (ex) { toast(errorText(ex), "err"); }
+  }
 
   async function saveProfile(e) {
     e.preventDefault();
@@ -73,24 +86,51 @@ export default function Profile() {
       </form>
 
       {me.role === "candidate" && (
+        <form className="card stack" onSubmit={savePrefs} noValidate>
+          <h2>Job preferences</h2>
+          <p className="muted">Optional. When you set them, jobs in your city or of your job type score a little higher. Leave empty to skip.</p>
+          <div className="grid2">
+            <div><label className="f">Preferred city</label>
+              <input value={prefs.preferred_location} maxLength={60} placeholder="e.g. Pokhara" className={prefErr.length ? "bad" : ""}
+                onChange={(e) => setPrefs({ ...prefs, preferred_location: e.target.value })} />
+              <FieldError errors={prefErr} /></div>
+            <div><label className="f">Preferred job type</label>
+              <select value={prefs.preferred_job_type} onChange={(e) => setPrefs({ ...prefs, preferred_job_type: e.target.value })}>
+                <option value="">No preference</option>
+                {["full_time", "part_time", "internship", "contract"].map((x) => <option key={x} value={x}>{t(x)}</option>)}
+              </select></div>
+          </div>
+          <div><button className="primary">Save preferences</button></div>
+        </form>
+      )}
+
+      {me.role === "candidate" && (
         <section className="card stack">
-          <h2>My resumes</h2>
+          <div className="row between"><h2>My resumes</h2>
+            <button type="button" onClick={() => setReview({ resume: null, manual: true })}>＋ Type my details</button></div>
           <p className="muted">Only you, and recruiters of jobs you applied to, can open these files.</p>
           {resumes === null ? <Skeleton n={1} /> : resumes.length === 0 ? <p className="muted">No resume uploaded yet. Upload one from the Career plan page or when you apply.</p> :
             resumes.map((r) => (
               <div className="row between resume-row" key={r.id}>
                 <div>
-                  <b>📄 {r.filename}</b>
-                  <p className="muted" style={{ fontSize: 13.5 }}>Uploaded {ago(r.uploaded_at, t)} · used in {r.applications} application(s)</p>
+                  <b>📄 {r.filename || "Typed details"}</b> {!r.confirmed && <span className="badge auto">Needs your confirmation</span>}
+                  <p className="muted" style={{ fontSize: 13.5 }}>Uploaded {ago(r.uploaded_at, t)} · {r.experience_years} yr · used in {r.applications} application(s)</p>
                   <div>{r.extracted_skills.slice(0, 8).map((s) => <span className="chip" key={s}>{skillLabel(s)}</span>)}</div>
                 </div>
                 <div className="row">
-                  <button onClick={() => view(r)}>Open</button>
+                  {!r.confirmed && <button className="primary" onClick={() => setReview({ resume: r, manual: false })}>Review</button>}
+                  {r.filename && <button onClick={() => view(r)}>Open</button>}
                   <button className="danger" onClick={() => remove(r)}>{t("del")}</button>
                 </div>
               </div>
             ))}
         </section>
+      )}
+      {review && (
+        <Modal title="Check your resume details" onClose={() => setReview(null)}>
+          <ResumeReview resume={review.resume} manual={review.manual} onCancel={() => setReview(null)}
+            onDone={() => { setReview(null); loadResumes(); }} />
+        </Modal>
       )}
     </div>
   );

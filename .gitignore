@@ -18,7 +18,17 @@ __pycache__/
 # Build files
 frontend/dist/
 
+# Python testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+
 # IDE and operating system files
 .idea/
 .vscode/
 .DS_Store
+
+

@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import api, { errorText } from "../api";
 import ApplyModal from "../ApplyModal.jsx";
 import { useT } from "../i18n.jsx";
+import { ScoreBreakdown } from "../ui_resume.jsx";
 import { Empty, MatchRing, Skeleton, StatusBadge, ago, eduText, expText, expiryText, formatDate, salaryText, skillLabel, useToast } from "../ui.jsx";
 
 export default function JobDetail() {
@@ -73,7 +74,8 @@ export default function JobDetail() {
           <section className="card">
             <h2 style={{ marginBottom: 8 }}>{t("requirements")}</h2>
             <ul className="reqs">
-              <li><b>{t("requiredSkills")}:</b> {job.required_skills.map((s) => <span className="chip" key={s}>{skillLabel(s)}</span>)}</li>
+              <li><b>Must-have skills:</b> {job.required_skills.map((s) => <span className="chip" key={s}>{skillLabel(s)}</span>)}</li>
+              {job.nice_to_have_skills?.length > 0 && <li><b>Nice to have:</b> {job.nice_to_have_skills.map((s) => <span className="chip part" key={s}>{skillLabel(s)}</span>)}</li>}
               <li><b>{t("experienceReq")}:</b> {job.min_experience_years > 0 ? t("expYears", { n: job.min_experience_years }) : t("fresher")}</li>
               <li><b>{t("qualification")}:</b> {eduText(job.required_education, t)}</li>
             </ul>
@@ -93,12 +95,7 @@ export default function JobDetail() {
             {md ? (
               <>
                 <div style={{ display: "grid", placeItems: "center" }}><MatchRing value={md.match_percentage} size={92} /></div>
-                <div style={{ marginTop: 12, textAlign: "left" }}>
-                  <small>{t("matchedSkills")}</small><br />
-                  {md.matched_skills.length ? md.matched_skills.map((s) => <span className="chip ok" key={s}>✓ {skillLabel(s)}</span>) : <span className="muted">—</span>}
-                  <br /><small>{t("missingSkills")}</small><br />
-                  {md.missing_skills.length ? md.missing_skills.map((s) => <span className="chip miss" key={s}>✗ {skillLabel(s)}</span>) : <span className="muted">—</span>}
-                </div>
+                <div style={{ marginTop: 12, textAlign: "left" }}><ScoreBreakdown a={md} /></div>
               </>
             ) : <p className="muted">{t("uploadForMatch")}</p>}
           </section>

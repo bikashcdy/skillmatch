@@ -73,3 +73,6 @@ Gmail emails may not send on PythonAnywhere free; the app keeps working without 
 - [ ] Demo passwords changed or demo users deleted (do **not** run `seed_demo` online with the default passwords)
 - [ ] Register a new recruiter and candidate on the live site and apply once end to end
 - [ ] Say in your report that photo resumes work locally with OCR but not on the free host
+
+## OCR (photos and scanned resumes)
+Install the Tesseract program on the server (Ubuntu: `apt install tesseract-ocr`; Windows: the UB Mannheim installer, then set env `TESSERACT_CMD` if it is not in `C:\Program Files\Tesseract-OCR\`). Python packages come from `requirements.txt`. Candidates see a notice when OCR is missing.

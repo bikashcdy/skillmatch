@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api, { currentUser, errorText } from "../api";
+import AdminMatching from "./AdminMatching.jsx";
 import { Skeleton, formatDate, useToast } from "../ui.jsx";
 
 export default function AdminDashboard() {
@@ -52,12 +53,13 @@ export default function AdminDashboard() {
         </section>
       )}
 
-      <div className="seg" style={{ maxWidth: 320 }}>
+      <div className="seg" style={{ maxWidth: 440, gridTemplateColumns: "repeat(3,1fr)" }}>
         <button className={tab === "users" ? "on" : ""} onClick={() => setTab("users")}>Users</button>
         <button className={tab === "jobs" ? "on" : ""} onClick={() => setTab("jobs")}>Jobs ({jobs ? jobs.length : "…"})</button>
+        <button className={tab === "match" ? "on" : ""} onClick={() => setTab("match")}>Matching</button>
       </div>
 
-      {tab === "users" ? (
+      {tab === "match" ? <AdminMatching /> : tab === "users" ? (
         <div className="card">
           <div className="row between" style={{ marginBottom: 12 }}>
             <h2>Users</h2>

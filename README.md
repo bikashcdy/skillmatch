@@ -94,6 +94,9 @@ matched vs missing skills. "Select highest match" marks the top application as `
 - `docs/DEPLOYMENT.md` (going online) and `docs/MATCHING.md` (explanation for your report).
 - **Database change:** run `py manage.py migrate` once after copying the files.
 
+## Update v5: the full matching algorithm
+Weighted five-part score (skills, text, experience, education, preferences), must-have knock-out cap, improved TF-IDF, OCR for photos and scanned PDFs, resume review/confirm step, grid-search weight tuning in the admin dashboard, skill-demand report, learning path and what-if tool. The backend is split into eight apps. See `docs/MATCHING.md` and `UPDATE_V5.txt`.
+
 ## Update v3: job details, expiry, fresher
 - Clicking a job opens a **details page**: description, requirements, qualification, experience, posted date
   ("2 days ago"), apply-before date with days left, salary, and how your resume matches.

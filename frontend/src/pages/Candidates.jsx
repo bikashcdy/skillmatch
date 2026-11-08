@@ -1,3 +1,4 @@
+import { ScoreBreakdown } from "../ui_resume.jsx";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import api, { errorText, openResume } from "../api";
@@ -56,12 +57,14 @@ export default function Candidates() {
           </div>
           <div style={{ marginTop: 10 }}>
             {a.matched_skills.map((s) => <span className="chip ok" key={s}>✓ {skillLabel(s)}</span>)}
+            {(a.partial_skills || []).map((s) => <span className="chip part" key={s}>~ {skillLabel(s)}</span>)}
             {a.missing_skills.map((s) => <span className="chip miss" key={s}>missing: {skillLabel(s)}</span>)}
+            {a.knockout && <span className="badge rejected" title="A must-have skill is missing; score capped at 60%">⚠ must-have missing</span>}
           </div>
           {a.recruiter_note && <div className="note"><b>💬 {t("message")}</b><p>{a.recruiter_note}</p></div>}
           {open === a.id && (
             <div className="stack" style={{ marginTop: 12 }}>
-              <Bar label="Skills" value={a.skill_score} /><Bar label="Experience" value={a.experience_score} /><Bar label="Education" value={a.education_score} />
+              <ScoreBreakdown a={a} />
               <div><small>Skills found in resume:</small><br />{a.candidate_skills.map((s) => <span className="chip" key={s}>{skillLabel(s)}</span>)}</div>
             </div>
           )}
